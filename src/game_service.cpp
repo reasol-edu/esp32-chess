@@ -12,10 +12,11 @@ void GameService::begin() {
 }
 
 void GameService::post(const Cmd &c) { xQueueSend(q_, &c, 0); }
-void GameService::post_new(bool w, int l) { post({NEW, w, l, {}}); }
-void GameService::post_human_move(const ce::Move &m) { post({MOVE, false, 0, m}); }
-void GameService::post_undo() { post({UNDO, false, 0, {}}); }
-void GameService::post_hint() { post({HINT, false, 0, {}}); }
+void GameService::post_new(bool w, int l, bool coach, bool adaptive) { post({NEW, w, l, coach, adaptive, {}}); }
+void GameService::post_human_move(const ce::Move &m) { post({MOVE, false, 0, false, false, m}); }
+void GameService::post_undo() { post({UNDO, false, 0, false, false, {}}); }
+void GameService::post_hint() { post({HINT, false, 0, false, false, {}}); }
+void GameService::post_confirm() { post({CONFIRM, false, 0, false, false, {}}); }
 
 void GameService::publish() {
     xSemaphoreTake(mu_, portMAX_DELAY);
@@ -38,7 +39,7 @@ bool GameService::poll(Snapshot &out) {
 
 // Si le toca a la CPU: el snapshot anterior ya mostró "piensa..."; ahora busca y publica la jugada.
 void GameService::thinkIfNeeded() {
-    if (!core_.cpuToMove()) return;
+    if (!core_.cpuMayMove()) return;  // sin aviso de peligro pendiente
     uint32_t t0 = millis();
     core_.cpuMove();
     Serial.printf("[chess] CPU nivel %d: %lu ms\n", core_.snap().level, (unsigned long)(millis() - t0));
@@ -50,10 +51,11 @@ void GameService::run() {
     for (;;) {
         if (xQueueReceive(q_, &c, portMAX_DELAY) != pdTRUE) continue;
         switch (c.type) {
-            case NEW: core_.newGame(c.white, c.level); break;
+            case NEW: core_.newGame(c.white, c.level, c.coach, c.adaptive); break;
             case MOVE: core_.humanMove(c.move); break;
             case UNDO: core_.undo(); break;
             case HINT: core_.hint(); break;
+            case CONFIRM: core_.confirm(); break;
         }
         publish();
         thinkIfNeeded();

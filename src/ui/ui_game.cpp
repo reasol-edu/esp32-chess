@@ -25,6 +25,7 @@ static const uint32_t COL_LAST_L = 0xD9DE72, COL_LAST_D = 0xB5B445;
 static const uint32_t COL_SEL_L = 0x8BE07A, COL_SEL_D = 0x62BE52;
 static const uint32_t COL_CHECK = 0xE8554E;
 static const uint32_t COL_HINT_L = 0x8CCBF5, COL_HINT_D = 0x5AA4DC;
+static const uint32_t COL_DANGER = 0xFF8A3D;
 
 // ── Estado ────────────────────────────────────────────────────────────────
 static GameHost *host;
@@ -46,7 +47,9 @@ static lv_obj_t *tray_cont;
 static lv_obj_t *btn_undo, *btn_hint, *btn_new;
 static lv_obj_t *dlg_new, *dlg_promo, *banner;
 static lv_obj_t *lvl_card[LEVEL_COUNT];
-static lv_obj_t *col_btn[2];
+static lv_obj_t *col_btn[2], *coach_btn, *adapt_btn;
+static lv_obj_t *warn_card, *warn_title, *warn_sub, *lvl_dot[LEVEL_COUNT];
+static bool dlg_coach = true, dlg_adapt = true;
 static int dlg_level = 1;
 static bool dlg_white = true;
 static int promo_from = -1, promo_to = -1;
@@ -228,8 +231,11 @@ static void paint_squares() {
         if (snap.hasHint && (s == snap.hint.from || s == snap.hint.to)) col = l ? COL_HINT_L : COL_HINT_D;
         if (s == sel) col = l ? COL_SEL_L : COL_SEL_D;
         if (s == checked) col = COL_CHECK;
+        bool danger = snap.awaiting && s == snap.dangerSq;
+        if (danger) col = COL_DANGER;
         lv_obj_set_style_bg_color(sq_obj[s], C(col), 0);
-        bool cap = target[s] && snap.board[s] != 0;
+        lv_obj_set_style_border_color(ring_obj[s], C(danger ? 0xD32F2F : 0x2E7D32), 0);
+        bool cap = (target[s] && snap.board[s] != 0) || danger;
         if (target[s] && !cap) lv_obj_remove_flag(dot_obj[s], LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(dot_obj[s], LV_OBJ_FLAG_HIDDEN);
         if (cap) lv_obj_remove_flag(ring_obj[s], LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(ring_obj[s], LV_OBJ_FLAG_HIDDEN);
     }
@@ -265,7 +271,7 @@ static void build_avatar(int level) {
     lv_label_set_text(name_lbl, lv.name);
 }
 
-static bool human_turn() { return have_snap && snap.whiteToMove == snap.humanWhite && !(snap.status >= ce::ST_MATE); }
+static bool human_turn() { return have_snap && snap.whiteToMove == snap.humanWhite && !(snap.status >= ce::ST_MATE) && !snap.awaiting; }
 static bool game_over() { return have_snap && snap.status >= ce::ST_MATE; }
 static bool interactive() { return human_turn() && lv_obj_has_flag(dlg_new, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(dlg_promo, LV_OBJ_FLAG_HIDDEN); }
 
@@ -333,6 +339,17 @@ static void update_status(bool cap_by_cpu, bool cap_by_human) {
         lv_label_set_text(status_lbl, buf);
         return;
     }
+    if (snap.awaiting) {  // aviso de pieza en peligro: la CPU espera la decisión
+        static const char *const NAME[] = {"", "el peón", "el caballo", "el alfil", "la torre", "la dama", "el rey"};
+        int pc = snap.board[snap.dangerSq];
+        pc = pc < 0 ? -pc : pc;
+        lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_x(status_lbl, 24);
+        lv_label_set_text(status_lbl, "¡Pieza en peligro!");
+        snprintf(buf, sizeof buf, "¡Ojo! Pueden comerte %s", NAME[pc > 6 ? 0 : pc]);
+        set_speech(buf, Mood::Surprised);
+        return;
+    }
     if (!human_on_move) {  // piensa la CPU
         lv_obj_remove_flag(spinner, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_x(status_lbl, 64);
@@ -344,7 +361,9 @@ static void update_status(bool cap_by_cpu, bool cap_by_human) {
     } else {
         lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_x(status_lbl, 24);
-        if (snap.status == ce::ST_CHECK) { lv_label_set_text(status_lbl, "¡Estás en jaque!"); set_speech(pick(S_CHECK_HUMAN, 2), Mood::Happy); }
+        if (snap.adaptEvent < 0) { lv_label_set_text(status_lbl, "Tu turno"); set_speech("¡Voy más despacio!", Mood::Happy); }
+        else if (snap.adaptEvent > 0) { lv_label_set_text(status_lbl, "Tu turno"); set_speech("¡Ahora me esfuerzo más!", Mood::Normal); }
+        else if (snap.status == ce::ST_CHECK) { lv_label_set_text(status_lbl, "¡Estás en jaque!"); set_speech(pick(S_CHECK_HUMAN, 2), Mood::Happy); }
         else {
             lv_label_set_text(status_lbl, "Tu turno");
             set_speech(cap_by_cpu ? pick(S_CAPTURE_ME, 2) : pick(S_TURN, 3), cap_by_cpu ? Mood::Happy : Mood::Normal);
@@ -352,8 +371,26 @@ static void update_status(bool cap_by_cpu, bool cap_by_human) {
     }
 }
 
+static void set_btn_text(lv_obj_t *b, const char *txt) { lv_label_set_text(lv_obj_get_child(b, 0), txt); }
+
+static void update_dots() {
+    for (int i = 0; i < LEVEL_COUNT; i++)
+        lv_obj_set_style_bg_color(lvl_dot[i], C(i <= snap.effLevel ? (snap.adaptive && snap.effLevel != snap.level ? 0x4DD0E1 : 0xFFB300) : 0x4A4780), 0);
+}
+
 static void update_buttons() {
-    bool can = human_turn() && lv_obj_has_flag(dlg_new, LV_OBJ_FLAG_HIDDEN);
+    bool dlg_closed = lv_obj_has_flag(dlg_new, LV_OBJ_FLAG_HIDDEN);
+    if (snap.awaiting) {  // aviso: "Deshacer" retira la jugada, "Seguir" deja que la CPU responda
+        set_btn_text(btn_undo, "Deshacer");
+        set_btn_text(btn_hint, "Seguir");
+        lv_obj_remove_flag(warn_card, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_state(btn_undo, LV_STATE_DISABLED);
+        if (dlg_closed) lv_obj_remove_state(btn_hint, LV_STATE_DISABLED);
+        return;
+    }
+    set_btn_text(btn_hint, "Pista");
+    lv_obj_add_flag(warn_card, LV_OBJ_FLAG_HIDDEN);
+    bool can = human_turn() && dlg_closed;
     auto set = [](lv_obj_t *b, bool on) { if (on) lv_obj_remove_state(b, LV_STATE_DISABLED); else lv_obj_add_state(b, LV_STATE_DISABLED); };
     set(btn_undo, can && snap.plies > 0);
     set(btn_hint, can);
@@ -424,6 +461,7 @@ static void open_promo(int from, int to) {
     lv_obj_move_foreground(dlg_promo);
 }
 
+static void toggle_style(lv_obj_t *b, bool on);
 static void refresh_dialog() {
     for (int i = 0; i < LEVEL_COUNT; i++) {
         lv_obj_set_style_border_color(lvl_card[i], C(i == dlg_level ? 0xFFB300 : 0x4A4780), 0);
@@ -434,6 +472,10 @@ static void refresh_dialog() {
         lv_obj_set_style_bg_color(col_btn[i], C(on ? 0xFFB300 : 0x4A4780), 0);
         lv_obj_set_style_bg_grad_color(col_btn[i], C(on ? 0xE08F00 : 0x35336B), 0);
     }
+    toggle_style(coach_btn, dlg_coach);
+    toggle_style(adapt_btn, dlg_adapt);
+    set_btn_text(coach_btn, dlg_coach ? "Avisos: Sí" : "Avisos: No");
+    set_btn_text(adapt_btn, dlg_adapt ? "Adaptable: Sí" : "Adaptable: No");
     lv_obj_remove_flag(dlg_new, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(dlg_new);
     update_buttons();
@@ -450,12 +492,15 @@ static void start_game() {
     banner_shown = false;
     select_square(-1);
     have_snap = false;
-    host->post_new(dlg_white, dlg_level);
+    host->post_new(dlg_white, dlg_level, dlg_coach, dlg_adapt);
 }
 
 static void on_new(lv_event_t *) { host->stop_search(); open_new_dialog(); }
-static void on_undo(lv_event_t *) { if (human_turn()) { select_square(-1); host->post_undo(); } }
-static void on_hint(lv_event_t *) { if (human_turn()) host->post_hint(); }
+static void on_undo(lv_event_t *) { if (human_turn() || snap.awaiting) { select_square(-1); host->post_undo(); } }
+static void on_hint(lv_event_t *) {
+    if (snap.awaiting) host->post_confirm();
+    else if (human_turn()) host->post_hint();
+}
 static void on_play(lv_event_t *) { start_game(); }
 static void on_level(lv_event_t *e) {
     dlg_level = (int)(intptr_t)lv_event_get_user_data(e);
@@ -515,6 +560,8 @@ static void build_panel() {
     lv_obj_set_style_border_width(card, 2, 0);
     lv_obj_set_style_border_color(card, C(0x4A4780), 0);
     name_lbl = label(card, "", &lv_font_montserrat_42, 0xFFFFFF, 160, 14);
+    for (int i = 0; i < LEVEL_COUNT; i++)  // nivel efectivo de la CPU (cambia en el modo adaptable)
+        lvl_dot[i] = mk(card, 18 + i * 21, 164, 14, 14, 0x4A4780, LV_RADIUS_CIRCLE);
     // Bocadillo
     lv_obj_t *bub = mk(card, 152, 70, 226, 104, 0xFFFFFF, 20);
     speech_lbl = label(bub, "", &lv_font_montserrat_28, 0x2D2A5A, 12, 10);
@@ -537,43 +584,60 @@ static void build_panel() {
 
     tray_cont = mk(scr, PX, 278, PW, 124, 0x000000, 0, 0);
 
+    warn_card = mk(scr, PX, 278, PW, 124, 0xE8641B, 26);
+    lv_obj_set_style_bg_grad_color(warn_card, C(0xC0392B), 0);
+    lv_obj_set_style_bg_grad_dir(warn_card, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_border_width(warn_card, 3, 0);
+    lv_obj_set_style_border_color(warn_card, C(0xFFD23F), 0);
+    warn_title = label(warn_card, "¡Cuidado!", &lv_font_montserrat_42, 0xFFFFFF, 18, 8);
+    warn_sub = label(warn_card, "¿Deshacer o seguir?", &lv_font_montserrat_28, 0xFFF1C1, 18, 70);
+    lv_obj_add_flag(warn_card, LV_OBJ_FLAG_HIDDEN);
+
     int bw = (PW - 16) / 2;
     btn_undo = button(scr, "Deshacer", 0x3F8CE6, PX, 410, bw, 82, [](lv_event_t *e) { on_undo(e); });
     btn_hint = button(scr, "Pista", 0x2FB67C, PX + bw + 16, 410, bw, 82, [](lv_event_t *e) { on_hint(e); });
     btn_new = button(scr, "Nueva partida", 0xF08A24, PX, 508, PW, 82, [](lv_event_t *e) { on_new(e); });
 }
 
+static void toggle_style(lv_obj_t *b, bool on) {
+    lv_obj_set_style_bg_color(b, C(on ? 0xFFB300 : 0x4A4780), 0);
+    lv_obj_set_style_bg_grad_color(b, C(on ? 0xE08F00 : 0x35336B), 0);
+}
+
 static void build_new_dialog() {
     dlg_new = mk(lv_layer_top(), 0, 0, 1024, 600, 0x0A0820, 0, 215);
     lv_obj_add_flag(dlg_new, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_t *p = mk(dlg_new, 32, 24, 960, 552, 0x2D2A5A, 36);
+    lv_obj_t *p = mk(dlg_new, 24, 8, 976, 584, 0x2D2A5A, 36);
     lv_obj_set_style_border_width(p, 3, 0);
     lv_obj_set_style_border_color(p, C(0x4A4780), 0);
-    lv_obj_t *t = label(p, "¿Contra quién quieres jugar?", &lv_font_montserrat_42, 0xFFFFFF, 0, 16);
-    lv_obj_set_width(t, 960);
+    lv_obj_t *t = label(p, "¿Contra quién quieres jugar?", &lv_font_montserrat_42, 0xFFFFFF, 0, 12);
+    lv_obj_set_width(t, 976);
     lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, 0);
     for (int i = 0; i < LEVEL_COUNT; i++) {
-        int cx = 30 + (i % 3) * 306, cy = 84 + (i / 3) * 184;
-        lv_obj_t *c = mk(p, cx, cy, 290, 170, 0x221F47, 26);
+        int cx = 38 + (i % 3) * 308, cy = 72 + (i / 3) * 160;
+        lv_obj_t *c = mk(p, cx, cy, 292, 148, 0x221F47, 26);
         lv_obj_set_style_border_width(c, 2, 0);
         lv_obj_set_style_border_color(c, C(0x4A4780), 0);
         lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(c, on_level, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-        Avatar a = avatar_create(c, i, 96);
-        lv_obj_set_pos(a.root, 14, 34);
+        Avatar a = avatar_create(c, i, 92);
+        lv_obj_set_pos(a.root, 14, 28);
         lv_obj_remove_flag(a.root, LV_OBJ_FLAG_CLICKABLE);
         const Level &lv = level_info(i);
-        label(c, lv.name, &lv_font_montserrat_32, 0xFFFFFF, 124, 22);
-        for (int k = 0; k < 5; k++)  // estrellas de dificultad = puntos
-            mk(c, 126 + k * 26, 74, 18, 18, k <= i * 4 / 5 ? 0xFFB300 : 0x4A4780, LV_RADIUS_CIRCLE);
-        lv_obj_t *tg = label(c, lv.tagline, &lv_font_montserrat_14, 0xB8B4DD, 124, 104);
+        label(c, lv.name, &lv_font_montserrat_32, 0xFFFFFF, 124, 16);
+        for (int k = 0; k < 5; k++)  // puntos de dificultad
+            mk(c, 126 + k * 26, 66, 18, 18, k <= i * 4 / 5 ? 0xFFB300 : 0x4A4780, LV_RADIUS_CIRCLE);
+        lv_obj_t *tg = label(c, lv.tagline, &lv_font_montserrat_14, 0xB8B4DD, 124, 96);
         lv_obj_set_width(tg, 160);
         lvl_card[i] = c;
     }
-    label(p, "Juego con:", &lv_font_montserrat_28, 0xB8B4DD, 36, 462);
-    col_btn[0] = button(p, "Blancas", 0xFFB300, 224, 446, 190, 64, on_color, (void *)0);
-    col_btn[1] = button(p, "Negras", 0x4A4780, 424, 446, 190, 64, on_color, (void *)1);
-    button(p, "¡A jugar!", 0x2FB67C, 664, 446, 260, 64, on_play);
+    label(p, "Juego con:", &lv_font_montserrat_28, 0xB8B4DD, 38, 400);
+    col_btn[0] = button(p, "Blancas", 0xFFB300, 224, 388, 180, 58, on_color, (void *)0);
+    col_btn[1] = button(p, "Negras", 0x4A4780, 416, 388, 180, 58, on_color, (void *)1);
+    coach_btn = button(p, "", 0xFFB300, 38, 466, 296, 64, [](lv_event_t *) { dlg_coach = !dlg_coach; refresh_dialog(); });
+    adapt_btn = button(p, "", 0xFFB300, 346, 466, 316, 64, [](lv_event_t *) { dlg_adapt = !dlg_adapt; refresh_dialog(); });
+    button(p, "¡A jugar!", 0x2FB67C, 700, 466, 238, 64, on_play);
+    label(p, "Avisos: te avisa si dejas una pieza en peligro.  Adaptable: se ajusta a tu juego.", &lv_font_montserrat_14, 0xB8B4DD, 38, 544);
     lv_obj_add_flag(dlg_new, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -639,6 +703,7 @@ static void apply_snapshot() {
         if (sel >= 0) { unlift(sel); sel = -1; memset(target, 0, sizeof target); }
         sync_pieces(animate);
         rebuild_tray();
+        update_dots();
         update_status(cap && !mover_is_human, cap && mover_is_human);
     }
     paint_squares();
@@ -711,5 +776,8 @@ void ui_game_debug_tap(const char *w) {
     else if (!strcmp(w, "black")) { dlg_white = false; refresh_dialog(); }
     else if (!strncmp(w, "lvl:", 4)) { dlg_level = atoi(w + 4); refresh_dialog(); }
     else if (!strncmp(w, "promo:", 6)) promo_choose(w[6]);
+    else if (!strcmp(w, "coach")) { dlg_coach = !dlg_coach; refresh_dialog(); }
+    else if (!strcmp(w, "adapt")) { dlg_adapt = !dlg_adapt; refresh_dialog(); }
+    else if (!strcmp(w, "confirm")) on_hint(nullptr);
     else if (!strcmp(w, "banner")) banner_cb(nullptr);
 }

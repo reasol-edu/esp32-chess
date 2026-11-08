@@ -27,11 +27,12 @@ static void run(int ms) { for (int i = 0; i < ms / 16; i++) { g_now += 16; lv_ti
 struct SimHost : GameHost {
     GameCore core;
     bool dirty = false, cpu_pending = false;
-    void post_new(bool w, int l) override { core.newGame(w, l); dirty = true; cpu_pending = core.cpuToMove(); }
-    void load(const char *fen, bool w, int l) { core.loadFen(fen, w, l); dirty = true; cpu_pending = core.cpuToMove(); }
-    void post_human_move(const ce::Move &m) override { if (core.humanMove(m)) { dirty = true; cpu_pending = core.cpuToMove(); } }
-    void post_undo() override { if (core.undo()) { dirty = true; cpu_pending = core.cpuToMove(); } }
+    void post_new(bool w, int l, bool coach, bool adaptive) override { core.newGame(w, l, coach, adaptive); dirty = true; cpu_pending = core.cpuMayMove(); }
+    void load(const char *fen, bool w, int l) { core.loadFen(fen, w, l); dirty = true; cpu_pending = core.cpuMayMove(); }
+    void post_human_move(const ce::Move &m) override { if (core.humanMove(m)) { dirty = true; cpu_pending = core.cpuMayMove(); } }
+    void post_undo() override { if (core.undo()) { dirty = true; cpu_pending = core.cpuMayMove(); } }
     void post_hint() override { if (core.hint()) dirty = true; }
+    void post_confirm() override { if (core.confirm()) { dirty = true; cpu_pending = core.cpuMayMove(); } }
     void stop_search() override {}
     bool poll(Snapshot &out) override {
         if (dirty) { dirty = false; out = core.snap(); return true; }
@@ -72,7 +73,7 @@ int main(int argc, char **argv) {
     run(300);
 
     if (scene == "newgame") {
-        ui_game_debug_tap("lvl:3");
+        ui_game_debug_tap("lvl:3"); ui_game_debug_tap("adapt");
     } else if (scene == "newgame_black") {
         ui_game_debug_tap("lvl:5"); ui_game_debug_tap("black");
     } else {
@@ -92,6 +93,15 @@ int main(int argc, char **argv) {
         else if (scene == "promo") {
             host.load("8/P6k/8/8/8/8/8/K7 w - -", true, 1);
             run(300); tap("a7"); tap("a8");
+        } else if (scene == "danger") {
+            host.load("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq -", true, 1);
+            run(300); tap("d1"); tap("g4"); run(400);
+        } else if (scene == "danger_undo") {
+            host.load("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq -", true, 1);
+            run(300); tap("d1"); tap("g4"); run(400); ui_game_debug_tap("undo"); run(600);
+        } else if (scene == "adapt") {
+            host.load("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNB1KBNR w KQkq -", true, 2);
+            run(300); play("e2", "e4");
         } else if (scene == "win") {
             host.load("6k1/5ppp/8/8/8/8/8/R5K1 w - -", true, 1);
             run(300); play("a1", "a8"); run(400);

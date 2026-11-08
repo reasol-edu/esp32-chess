@@ -16,13 +16,18 @@ Usa **LVGL 9.6** con la unidad de dibujo **PPA** del ESP32-P4 y el motor de
 | 3 | UI: tablero, piezas, jugadas legales, coronación | Hecho; revisada en el simulador |
 | 4 | Partida contra la CPU (motor en el núcleo 1) | Hecho; sin probar en la placa |
 | 5 | Animaciones, mascotas, confeti, sprites con el PPA | Hecho; falta medir en la placa |
-| 6 | Dificultad: 6 niveles, deshacer y pista | Hecho; falta el aviso de pieza en peligro y el modo adaptable |
+| 6 | Dificultad: 6 niveles, deshacer, pista, aviso de pieza en peligro y modo adaptable | Hecho; sin probar en la placa |
 | 7 | Guardar partida, 2 jugadores | Pendiente (opcional) |
 
 ## Plan de juego
 
 - **Dificultad por animales**, de Pollito (movimientos casi al azar) a Dragón (motor a máxima profundidad). Los niveles se ajustarán con medidas reales en la placa.
-- **Ayudas para niños:** puntos en las casillas legales, pistas, deshacer ilimitado y aviso de pieza en peligro.
+- **Ayudas para niños:** puntos en las casillas legales, pistas y deshacer ilimitado.
+- **Aviso de pieza en peligro** (desactivable): si tras mover la CPU puede ganar al menos una pieza menor neta, la CPU espera y
+  la pantalla ofrece *Deshacer* o *Seguir*. Un peón suelto o un cambio igualado no avisan.
+- **Modo adaptable** (desactivable): afloja o aprieta hasta ±2 niveles según el balance de material y arrastra el resultado a la
+  siguiente partida. Los puntos bajo la mascota muestran el nivel efectivo (en cian si difiere del elegido).
+  Ambos se eligen en el diálogo de nueva partida y empiezan activados.
 - **Muy visual:** tablero de madera, piezas animadas, mascota que reacciona y confeti al ganar.
 - **PPA** para rellenos, mezclas y escalado de sprites. Su beneficio se medirá comparando con el entorno sin PPA.
 

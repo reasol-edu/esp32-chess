@@ -182,6 +182,32 @@ void test_adaptive_carries_to_next_game() {
     TEST_ASSERT_EQUAL(3, g.snap().effLevel);                // ganó: la siguiente partida sube un nivel
 }
 
+void test_adaptive_can_be_disabled() {
+    GameCore g; g.seed(4);
+    // El humano va 900 por debajo: con el modo adaptable activo la CPU afloja…
+    g.newGame(true, 2, false, true);
+    g.loadFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNB1KBNR w KQkq -", true, 2);
+    g.humanMove(sq("e2", "e4")); g.cpuMove();
+    TEST_ASSERT_EQUAL(1, g.snap().effLevel);
+    TEST_ASSERT_EQUAL(-1, g.snap().adaptEvent);
+    // …y con el modo desactivado el nivel efectivo es siempre el elegido y no hay ajustes
+    g.newGame(true, 2, false, false);
+    g.loadFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNB1KBNR w KQkq -", true, 2);
+    g.humanMove(sq("e2", "e4")); g.cpuMove();
+    TEST_ASSERT_FALSE(g.snap().adaptive);
+    TEST_ASSERT_EQUAL(2, g.snap().effLevel);
+    TEST_ASSERT_EQUAL(0, g.snap().adaptEvent);
+}
+
+void test_adaptive_off_does_not_carry_result() {
+    GameCore g; g.seed(2);
+    g.newGame(true, 2, false, false);
+    g.loadFen("6k1/5ppp/8/8/8/8/8/R5K1 w - -", true, 2);
+    g.humanMove(sq("a1", "a8"));                 // gana el humano con el modo desactivado
+    g.newGame(true, 2, false, true);             // al reactivarlo no arrastra ninguna subida
+    TEST_ASSERT_EQUAL(2, g.snap().effLevel);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_new_game_snapshot);
@@ -202,5 +228,7 @@ int main() {
     RUN_TEST(test_adaptive_eases_and_hardens);
     RUN_TEST(test_adaptive_effective_level_clamped);
     RUN_TEST(test_adaptive_carries_to_next_game);
+    RUN_TEST(test_adaptive_can_be_disabled);
+    RUN_TEST(test_adaptive_off_does_not_carry_result);
     return UNITY_END();
 }

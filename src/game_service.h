@@ -10,16 +10,17 @@
 class GameService : public GameHost {
 public:
     void begin();
-    void post_new(bool humanWhite, int level) override;
+    void post_new(bool humanWhite, int level, bool coach, bool adaptive) override;
     void post_human_move(const ce::Move &m) override;
     void post_undo() override;
     void post_hint() override;
+    void post_confirm() override;
     void stop_search() override { core_.stopSearch(); }
     bool poll(Snapshot &out) override;
 
 private:
-    enum Type : uint8_t { NEW, MOVE, UNDO, HINT };
-    struct Cmd { Type type; bool white; int level; ce::Move move; };
+    enum Type : uint8_t { NEW, MOVE, UNDO, HINT, CONFIRM };
+    struct Cmd { Type type; bool white; int level; bool coach, adaptive; ce::Move move; };
     static void taskEntry(void *self) { ((GameService *)self)->run(); }
     void run();
     void post(const Cmd &c);

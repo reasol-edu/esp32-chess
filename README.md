@@ -4,21 +4,20 @@ Ajedrez táctil para la **Guition JC1060P470** (ESP32-P4, pantalla 1024×600), p
 Usa **LVGL 9.6** con la unidad de dibujo **PPA** del ESP32-P4 y el motor de
 [hpsaturn/esp32-chess-engine](https://github.com/hpsaturn/esp32-chess-engine).
 
-> **Estado: en desarrollo.** El esqueleto de pantalla y el motor están hechos; la interfaz del juego todavía no.
+> **Estado: listo para probar en la placa.** Todo compila (con y sin PPA) y la UI se ha revisado con capturas del simulador,
+> pero **todavía no se ha ejecutado en el hardware real**.
 
 ## Estado
 
 | Fase | Contenido | Estado |
 |---|---|---|
-| 1 | Esqueleto: pantalla DSI, táctil GT911, LVGL 9.6, PPA | Compila; **sin probar en la placa** |
+| 1 | Esqueleto: pantalla DSI, táctil GT911, LVGL 9.6, PPA | Compila; sin probar en la placa |
 | 2 | Motor de ajedrez como librería, con tests en el PC | Hecho (13 tests) |
-| 3 | UI: tablero, piezas, jugadas legales, coronación | Pendiente |
-| 4 | Partida contra la CPU (motor en otra tarea) | Pendiente |
-| 5 | Animaciones, mascota, medición y uso del PPA | Pendiente |
-| 6 | Niveles de dificultad para niños, pistas, avisos | Pendiente |
-| 7 | Guardar partida, 2 jugadores | Opcional |
-
-Hoy `src/main.cpp` es solo una pantalla de prueba: un tablero 8×8 que indica la casilla tocada.
+| 3 | UI: tablero, piezas, jugadas legales, coronación | Hecho; revisada en el simulador |
+| 4 | Partida contra la CPU (motor en el núcleo 1) | Hecho; sin probar en la placa |
+| 5 | Animaciones, mascotas, confeti, sprites con el PPA | Hecho; falta medir en la placa |
+| 6 | Dificultad: 6 niveles, deshacer y pista | Hecho; falta el aviso de pieza en peligro y el modo adaptable |
+| 7 | Guardar partida, 2 jugadores | Pendiente (opcional) |
 
 ## Plan de juego
 
@@ -34,23 +33,30 @@ PlatformIO no suele estar en el `PATH`: `~/.platformio/penv/bin/pio`.
 ```bash
 pio run -e jc1060p470 -t upload -t monitor    # con PPA
 pio run -e jc1060p470_noppa                   # misma app sin PPA, para comparar
-pio test -e native                            # tests del motor en el PC
+pio test -e native                            # tests del motor y de la lógica de partida en el PC
+tools/sim/shot.sh mid                         # captura de la UI en el PC (sin placa): ver tools/sim/shot.sh
 ```
 
-Al arrancar, el monitor serie debe mostrar `LVGL 9.6.0 PPA=1`.
+Al arrancar, el monitor serie debe mostrar `[PPA] 24 sprites generados con SRM en … us` y `LVGL 9.6.0 PPA=1 sprites_ppa=1`.
+Si el PPA falla, la UI escala por software y lo indica (`sprites_ppa=0`). Cada jugada de la CPU registra su tiempo (`[chess] CPU nivel N: X ms`).
 
 ## Estructura
 
 ```
-src/main.cpp               Pantalla de prueba (DSI + táctil + LVGL)
-src/engine/engine_core.cpp Motor de ajedrez adaptado como librería
-src/engine/chess_api.h     API pública del motor (namespace ce)
+src/main.cpp               Arranque: pantalla DSI, táctil, LVGL, PPA y UI
+src/game_service.*         Tarea del motor (núcleo 1) y cola de órdenes
+src/game/                  Lógica de partida (GameCore) y niveles; sin LVGL ni FreeRTOS
+src/engine/                Motor de ajedrez adaptado como librería (namespace ce)
+src/ui/ui_game.cpp         Pantalla de juego: tablero, panel, diálogos, confeti
+src/ui/ui_avatar.cpp       Mascotas dibujadas con objetos LVGL
+src/ui/ppa_fx.cpp          Sprites levantados y miniaturas escalados con el PPA
+src/ui/pieces_data.c       Sprites cburnett 64x64 (generado por tools/gen_pieces.py)
 src/psram_alloc.cpp        Montón de LVGL en PSRAM
 src/ppa_cache_shim.cpp     Adaptador de caché que necesita el PPA de LVGL
-src/fonts/                 Montserrat con glifos españoles
 include/                   lv_conf.h, touch.h, ppa_cache_shim.h
-scripts/patch_gfx_p4.py    Parche de GFX Library (doble framebuffer DMA2D)
-test/                      Tests nativos del motor y shim de Arduino
+tools/sim/                 Simulador de la UI en el PC (capturas sin hardware)
+test/                      Tests nativos del motor y de la lógica de partida
+assets/pieces/             SVG de las piezas y su licencia
 ```
 
 La inicialización de pantalla, táctil y PPA procede del proyecto

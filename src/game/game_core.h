@@ -4,6 +4,8 @@
 #pragma once
 #include "chess_api.h"
 #include "difficulty.h"
+#include "adaptive.h"
+#include "danger.h"
 
 struct Snapshot {
     int8_t board[64];
@@ -17,7 +19,12 @@ struct Snapshot {
     uint8_t missingWhite[6];  // piezas blancas capturadas por tipo (P N B R Q K=0)
     uint8_t missingBlack[6];
     bool humanWhite;
-    int level;
+    int level;       // nivel elegido
+    int effLevel;    // nivel efectivo (distinto si el modo adaptable ha ajustado)
+    bool coach, adaptive;
+    bool awaiting;   // aviso de peligro pendiente: la CPU espera la decisión del humano
+    int dangerSq, dangerLoss;
+    int adaptEvent;  // −1 afloja, +1 aprieta (solo en el snapshot que lo provoca)
     bool hasHint;
     ce::Move hint;
     uint32_t seq;  // se incrementa con cada cambio
@@ -27,10 +34,12 @@ class GameCore {
 public:
     GameCore();
     void seed(uint32_t s) { rng_ = s ? s : 1; }
-    void newGame(bool humanWhite, int level);
+    void newGame(bool humanWhite, int level, bool coach = true, bool adaptive = true);
     bool loadFen(const char *fen, bool humanWhite, int level);  // posición arbitraria (tests, problemas)
     bool humanToMove() const { return snap_.whiteToMove == snap_.humanWhite && !over(); }
     bool cpuToMove() const { return snap_.whiteToMove != snap_.humanWhite && !over(); }
+    bool cpuMayMove() const { return cpuToMove() && !awaiting_; }  // turno de la CPU y sin aviso pendiente
+    bool confirm();                     // el humano sigue adelante pese al aviso
     bool over() const { return snap_.status >= ce::ST_MATE; }
     bool humanMove(const ce::Move &m);  // jugada del humano (debe ser legal)
     bool cpuMove(ce::Move *played = nullptr);  // calcula y juega la respuesta de la CPU
@@ -44,4 +53,9 @@ private:
     void refresh();
     Snapshot snap_;
     uint32_t rng_;
+    bool coach_ = true, adaptive_ = true, awaiting_ = false, ended_ = false;
+    int event_ = 0;
+    Danger danger_;
+    Adaptive ad_;
+    void checkEnd();
 };

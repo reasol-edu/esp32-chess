@@ -6,6 +6,7 @@
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include "ui_game.h"
+#include "save_store_nvs.h"
 
 class GameService : public GameHost {
 public:
@@ -15,18 +16,22 @@ public:
     void post_undo() override;
     void post_hint() override;
     void post_confirm() override;
+    void post_save(int slot) override;
+    void post_load(int slot) override;
+    void post_delete(int slot) override;
     void stop_search() override { core_.stopSearch(); }
     bool poll(Snapshot &out) override;
 
 private:
-    enum Type : uint8_t { NEW, MOVE, UNDO, HINT, CONFIRM };
-    struct Cmd { Type type; bool white; int level; bool coach, adaptive; ce::Move move; };
+    enum Type : uint8_t { NEW, MOVE, UNDO, HINT, CONFIRM, SAVE, LOAD, DELETE_ };
+    struct Cmd { Type type; bool white; int level; bool coach, adaptive; ce::Move move; int slot; };
     static void taskEntry(void *self) { ((GameService *)self)->run(); }
     void run();
     void post(const Cmd &c);
     void publish();
     void thinkIfNeeded();
     GameCore core_;
+    NvsSaveStore nvs_;
     Snapshot pub_;
     uint32_t pubSeq_ = 0, seenSeq_ = 0;
     QueueHandle_t q_ = nullptr;

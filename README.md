@@ -17,7 +17,8 @@ Usa **LVGL 9.6** con la unidad de dibujo **PPA** del ESP32-P4 y el motor de
 | 4 | Partida contra la CPU (motor en el núcleo 1) | Hecho; sin probar en la placa |
 | 5 | Animaciones, mascotas, confeti, sprites con el PPA | Hecho; falta medir en la placa |
 | 6 | Dificultad: 6 niveles, deshacer, pista, aviso de pieza en peligro y modo adaptable | Hecho; sin probar en la placa |
-| 7 | Guardar partida, 2 jugadores | Pendiente (opcional) |
+| 7 | Guardar y cargar partidas (3 huecos) | Hecho; sin probar en la placa |
+| 8 | Modo 2 jugadores cara a cara | Pendiente (opcional) |
 
 ## Plan de juego
 
@@ -28,6 +29,10 @@ Usa **LVGL 9.6** con la unidad de dibujo **PPA** del ESP32-P4 y el motor de
 - **Modo adaptable** (desactivable): afloja o aprieta hasta ±2 niveles según el balance de material y arrastra el resultado a la
   siguiente partida. Los puntos bajo la mascota muestran el nivel efectivo (en cian si difiere del elegido).
   Ambos se eligen en el diálogo de nueva partida y empiezan activados.
+- **Guardar y cargar** (botón *Partidas*): 3 huecos en la memoria NVS del chip, con la mascota, las jugadas y el color. Sobrescribir,
+  borrar o cargar sobre una partida en curso piden confirmación con un segundo toque. Se guardan los ajustes de la partida (nivel,
+  avisos, adaptable) y se rejuega desde el inicio, así que *Deshacer* sigue funcionando; un hueco dañado (CRC) o con jugadas ilegales
+  se rechaza sin tocar la partida actual. Una partida de 96 jugadas ocupa unos 200 bytes. No hay guardado automático.
 - **Muy visual:** tablero de madera, piezas animadas, mascota que reacciona y confeti al ganar.
 - **PPA** para rellenos, mezclas y escalado de sprites. Su beneficio se medirá comparando con el entorno sin PPA.
 
@@ -50,7 +55,8 @@ Si el PPA falla, la UI escala por software y lo indica (`sprites_ppa=0`). Cada j
 ```
 src/main.cpp               Arranque: pantalla DSI, táctil, LVGL, PPA y UI
 src/game_service.*         Tarea del motor (núcleo 1) y cola de órdenes
-src/game/                  Lógica de partida (GameCore) y niveles; sin LVGL ni FreeRTOS
+src/game/                  Lógica de partida (GameCore), niveles, aviso de peligro, modo adaptable y formato de guardado; sin LVGL ni FreeRTOS
+src/save_store_nvs.*       Almacén de partidas guardadas en NVS
 src/engine/                Motor de ajedrez adaptado como librería (namespace ce)
 src/ui/ui_game.cpp         Pantalla de juego: tablero, panel, diálogos, confeti
 src/ui/ui_avatar.cpp       Mascotas dibujadas con objetos LVGL

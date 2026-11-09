@@ -24,8 +24,10 @@ static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
 static void run(int ms) { for (int i = 0; i < ms / 16; i++) { g_now += 16; lv_timer_handler(); } }
 
 // Host síncrono: la respuesta de la CPU se calcula en el poll siguiente (da un fotograma de "pensando").
+static MemSaveStore sim_store;
 struct SimHost : GameHost {
     GameCore core;
+    SimHost() { core.setStore(&sim_store); }
     bool dirty = false, cpu_pending = false;
     void post_new(bool w, int l, bool coach, bool adaptive) override { core.newGame(w, l, coach, adaptive); dirty = true; cpu_pending = core.cpuMayMove(); }
     void load(const char *fen, bool w, int l) { core.loadFen(fen, w, l); dirty = true; cpu_pending = core.cpuMayMove(); }
@@ -33,6 +35,9 @@ struct SimHost : GameHost {
     void post_undo() override { if (core.undo()) { dirty = true; cpu_pending = core.cpuMayMove(); } }
     void post_hint() override { if (core.hint()) dirty = true; }
     void post_confirm() override { if (core.confirm()) { dirty = true; cpu_pending = core.cpuMayMove(); } }
+    void post_save(int s) override { core.saveSlot(s); dirty = true; }
+    void post_load(int s) override { if (core.loadSlot(s)) cpu_pending = core.cpuMayMove(); dirty = true; }
+    void post_delete(int s) override { core.deleteSlot(s); dirty = true; }
     void stop_search() override {}
     bool poll(Snapshot &out) override {
         if (dirty) { dirty = false; out = core.snap(); return true; }
@@ -102,6 +107,18 @@ int main(int argc, char **argv) {
         } else if (scene == "adapt") {
             host.load("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNB1KBNR w KQkq -", true, 2);
             run(300); play("e2", "e4");
+        } else if (scene == "slots" || scene == "slots_confirm" || scene == "slots_loaded") {
+            play("e2", "e4"); play("g1", "f3");
+            ui_game_debug_tap("slots"); run(200);
+            ui_game_debug_tap("save:0"); run(300);                 // hueco vacío: guarda directo
+            if (scene == "slots") { /* captura con el hueco 1 ocupado */ }
+            if (scene == "slots_confirm") ui_game_debug_tap("save:0");   // sobrescribir pide confirmación
+            if (scene == "slots_loaded") {
+                ui_game_debug_tap("lvl:4"); ui_game_debug_tap("black"); ui_game_debug_tap("play"); run(800);
+                ui_game_debug_tap("slots"); run(200);
+                ui_game_debug_tap("save:1"); run(300);             // otra partida (negras, Búho) en el hueco 2
+                ui_game_debug_tap("load:0"); run(200); ui_game_debug_tap("load:0"); run(1800);   // cargar pide confirmación
+            }
         } else if (scene == "win") {
             host.load("6k1/5ppp/8/8/8/8/8/R5K1 w - -", true, 1);
             run(300); play("a1", "a8"); run(400);

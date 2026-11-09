@@ -12,6 +12,9 @@ struct GameHost {
     virtual void post_undo() = 0;
     virtual void post_hint() = 0;
     virtual void post_confirm() = 0;  // seguir adelante pese al aviso de peligro
+    virtual void post_save(int slot) = 0;
+    virtual void post_load(int slot) = 0;
+    virtual void post_delete(int slot) = 0;
     virtual void stop_search() = 0;
     // Copia el último snapshot publicado si es nuevo (distinto seq) y devuelve true.
     virtual bool poll(Snapshot &out) = 0;
@@ -22,4 +25,4 @@ void ui_game_create(lv_obj_t *screen, GameHost *host);
 // Solo simulador/tests: acciones sintéticas.
 void ui_game_debug_tap_square(int sq);
 void ui_game_debug_open_new_dialog();
-void ui_game_debug_tap(const char *what);  // "undo" | "hint" | "new" | "play" | "lvl:N" | "white" | "black" | "coach" | "adapt" | "promo:q|r|b|n"
+void ui_game_debug_tap(const char *what);  // "undo" | "hint" | "new" | "play" | "lvl:N" | "white" | "black" | "coach" | "adapt" | "slots" | "save:N" | "load:N" | "del:N" | "promo:q|r|b|n"

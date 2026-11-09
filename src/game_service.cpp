@@ -5,6 +5,7 @@ void GameService::begin() {
     q_ = xQueueCreate(8, sizeof(Cmd));
     mu_ = xSemaphoreCreateMutex();
     core_.seed(esp_random());
+    core_.setStore(&nvs_);
     core_.newGame(true, 1);
     publish();
     // Núcleo 1: LVGL y la E/S corren en el 0. Pila generosa: la búsqueda es recursiva.
@@ -12,11 +13,14 @@ void GameService::begin() {
 }
 
 void GameService::post(const Cmd &c) { xQueueSend(q_, &c, 0); }
-void GameService::post_new(bool w, int l, bool coach, bool adaptive) { post({NEW, w, l, coach, adaptive, {}}); }
-void GameService::post_human_move(const ce::Move &m) { post({MOVE, false, 0, false, false, m}); }
-void GameService::post_undo() { post({UNDO, false, 0, false, false, {}}); }
-void GameService::post_hint() { post({HINT, false, 0, false, false, {}}); }
-void GameService::post_confirm() { post({CONFIRM, false, 0, false, false, {}}); }
+void GameService::post_new(bool w, int l, bool coach, bool adaptive) { post({NEW, w, l, coach, adaptive, {}, 0}); }
+void GameService::post_human_move(const ce::Move &m) { post({MOVE, false, 0, false, false, m, 0}); }
+void GameService::post_undo() { post({UNDO, false, 0, false, false, {}, 0}); }
+void GameService::post_hint() { post({HINT, false, 0, false, false, {}, 0}); }
+void GameService::post_confirm() { post({CONFIRM, false, 0, false, false, {}, 0}); }
+void GameService::post_save(int s) { post({SAVE, false, 0, false, false, {}, s}); }
+void GameService::post_load(int s) { post({LOAD, false, 0, false, false, {}, s}); }
+void GameService::post_delete(int s) { post({DELETE_, false, 0, false, false, {}, s}); }
 
 void GameService::publish() {
     xSemaphoreTake(mu_, portMAX_DELAY);
@@ -56,6 +60,9 @@ void GameService::run() {
             case UNDO: core_.undo(); break;
             case HINT: core_.hint(); break;
             case CONFIRM: core_.confirm(); break;
+            case SAVE: core_.saveSlot(c.slot); break;
+            case LOAD: core_.loadSlot(c.slot); break;
+            case DELETE_: core_.deleteSlot(c.slot); break;
         }
         publish();
         thinkIfNeeded();

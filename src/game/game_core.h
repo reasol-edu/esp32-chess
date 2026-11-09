@@ -14,6 +14,8 @@ struct NewGameOpts {
     bool humanWhite = true;
     int level = 1;
     bool coach = true, adaptive = true;
+    bool faceToFace = true;                        // solo UI (dos jugadores): se recuerda entre arranques
+    uint8_t clockMin = 0;                          // solo UI (dos jugadores): minutos de reloj, 0 = sin reloj
     bool twoPlayer = false;                        // dos jugadores en el mismo dispositivo, sin CPU
     char name1[NAME_LEN] = {0}, name2[NAME_LEN] = {0};  // jugador 1 (blancas en 2 jugadores) y jugador 2
 };

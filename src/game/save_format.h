@@ -30,9 +30,15 @@ struct SlotInfo {
     char name1[NAME_LEN] = {0}, name2[NAME_LEN] = {0};
 };
 
+// Minutos por jugador que ofrece el reloj de dos jugadores (0 = sin reloj).
+constexpr uint8_t CLOCK_MINUTES[] = {0, 3, 5, 10, 15};
+constexpr int CLOCK_CHOICES_N = sizeof CLOCK_MINUTES / sizeof CLOCK_MINUTES[0];
+
 // Preferencias de la última partida: se recuerdan entre arranques.
 struct GamePrefs {
     bool humanWhite = true, coach = true, adaptive = true, twoPlayer = false;
+    bool faceToFace = true;   // dos jugadores: false = se pasan el aparato (sin giros)
+    uint8_t clockMin = 0;     // reloj de dos jugadores
     uint8_t level = 1;
     char name1[NAME_LEN] = {0}, name2[NAME_LEN] = {0};
 };

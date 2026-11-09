@@ -74,12 +74,18 @@ ce::Move SaveReader::move(int i) const {
     return ce::Move{(int8_t)(v & 63), (int8_t)((v >> 6) & 63), (char)(p == 1 ? 'n' : p == 2 ? 'b' : p == 3 ? 'r' : p == 4 ? 'q' : 0)};
 }
 
+static int clock_index(uint8_t minutes) {
+    for (int i = 0; i < CLOCK_CHOICES_N; i++) if (CLOCK_MINUTES[i] == minutes) return i;
+    return 0;
+}
+
 size_t prefs_encode(const GamePrefs &p, uint8_t *b, size_t cap) {
     const size_t n = 4 + 2 * NAME_LEN + 2;
     if (cap < n) return 0;
     b[0] = PMAGIC;
     b[1] = PVERSION;
-    b[2] = (p.humanWhite ? 1 : 0) | (p.coach ? 2 : 0) | (p.adaptive ? 4 : 0) | (p.twoPlayer ? 8 : 0);
+    b[2] = (p.humanWhite ? 1 : 0) | (p.coach ? 2 : 0) | (p.adaptive ? 4 : 0) | (p.twoPlayer ? 8 : 0) | (p.faceToFace ? 0 : 16) |
+           (clock_index(p.clockMin) << 5);
     b[3] = p.level;
     memcpy(b + 4, p.name1, NAME_LEN);
     memcpy(b + 4 + NAME_LEN, p.name2, NAME_LEN);
@@ -97,6 +103,9 @@ bool prefs_decode(const uint8_t *b, size_t len, GamePrefs &o) {
     o.coach = b[2] & 2;
     o.adaptive = b[2] & 4;
     o.twoPlayer = b[2] & 8;
+    o.faceToFace = !(b[2] & 16);
+    int ci = b[2] >> 5;
+    o.clockMin = ci < CLOCK_CHOICES_N ? CLOCK_MINUTES[ci] : 0;
     o.level = b[3] < LEVEL_COUNT_FOR_PREFS ? b[3] : LEVEL_COUNT_FOR_PREFS - 1;
     name_sanitize(o.name1, (const char *)b + 4);
     name_sanitize(o.name2, (const char *)b + 4 + NAME_LEN);

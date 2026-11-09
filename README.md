@@ -35,11 +35,11 @@ Usa **LVGL 9.6** con la unidad de dibujo **PPA** del ESP32-P4 y el motor de
   Sin CPU, sin avisos y sin modo adaptable; *Deshacer* retira una jugada y *Rendirse* pide confirmación.
 - **Pasar el aparato** (botón de modo en el diálogo de dos jugadores, *Cara a cara* por defecto): no se gira nada, ni paneles,
   carteles, coronación ni piezas; los dos juegan desde el mismo lado y se pasan la pantalla. El tablero no cambia de orientación.
-  No se guarda con la partida ni se recuerda entre arranques.
+  Se recuerda entre arranques.
 - **Reloj de ajedrez** (opcional, solo en dos jugadores; botón *Reloj* del diálogo: no, 3, 5, 10 o 15 minutos por jugador). Corre
   para quien tiene el turno desde la primera jugada de las blancas, se detiene con cualquier diálogo abierto y, al agotarse,
-  pierde ese jugador (cartel "Se acabó el tiempo de …"). Los últimos 20 s se marcan en rojo. No se guarda con la partida
-  ni se recuerda entre arranques; una partida cargada empieza con el reloj lleno.
+  pierde ese jugador (cartel "Se acabó el tiempo de …"). Los últimos 20 s se marcan en rojo. Se recuerda entre arranques,
+  pero no va dentro de la partida guardada: una partida cargada empieza con el reloj lleno.
 - **Nombres** (opcionales, hasta 10 caracteres): se escriben con un teclado en pantalla con ñ y vocales con tilde. Se recuerdan
   entre arranques junto con la última elección (modo, nivel, color, avisos, adaptable) y se guardan con cada partida. Solo
   viven en la memoria del aparato; no se envían a ningún sitio. Sin nombre, se muestra "Blancas"/"Negras" (o "Tú" en una inicial).

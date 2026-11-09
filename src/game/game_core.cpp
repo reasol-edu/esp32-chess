@@ -83,6 +83,8 @@ void GameCore::newGame(const NewGameOpts &o) {
     prefs_.coach = o.coach;
     prefs_.adaptive = o.adaptive;
     prefs_.twoPlayer = o.twoPlayer;
+    prefs_.faceToFace = o.faceToFace;
+    prefs_.clockMin = o.clockMin;
     memcpy(prefs_.name1, name1_, NAME_LEN);
     memcpy(prefs_.name2, name2_, NAME_LEN);
     uint8_t buf[4 + 2 * NAME_LEN + 2];
@@ -98,6 +100,8 @@ void GameCore::newGameFromPrefs() {
     o.coach = prefs_.coach;
     o.adaptive = prefs_.adaptive;
     o.twoPlayer = prefs_.twoPlayer;
+    o.faceToFace = prefs_.faceToFace;
+    o.clockMin = prefs_.clockMin;
     memcpy(o.name1, prefs_.name1, NAME_LEN);
     memcpy(o.name2, prefs_.name2, NAME_LEN);
     newGame(o);

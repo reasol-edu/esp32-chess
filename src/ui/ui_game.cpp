@@ -320,7 +320,6 @@ static bool interactive() { return human_turn() && dialogs_closed(); }
 // ── Reloj de ajedrez (opcional) ───────────────────────────────────────────
 // Solo en dos jugadores. Vive en la UI: corre para el bando que tiene el turno desde la primera jugada, se detiene con cualquier
 // diálogo abierto, con el aviso de peligro pendiente o al terminar, y al agotarse rinde a ese bando.
-static const int CLOCK_CHOICES[] = {0, 3, 5, 10, 15};   // minutos por jugador; 0 = sin reloj
 static int dlg_clock;                                    // elegido en el diálogo
 static int clock_min;                                    // de la partida en curso
 static int32_t clock_left[2];                            // ms restantes: 0 blancas, 1 negras
@@ -664,6 +663,8 @@ static void start_game() {
     o.coach = dlg_coach;
     o.adaptive = dlg_adapt;
     o.twoPlayer = dlg_two;
+    o.faceToFace = dlg_face;
+    o.clockMin = (uint8_t)dlg_clock;
     name_sanitize(o.name1, dlg_n1);
     name_sanitize(o.name2, dlg_n2);
     host->post_new(o);
@@ -677,9 +678,9 @@ static void on_hint(lv_event_t *) {
 }
 static void on_play(lv_event_t *) { start_game(); }
 static void on_clock(lv_event_t *) {  // rota: sin reloj → 3 → 5 → 10 → 15 minutos
-    int n = (int)(sizeof CLOCK_CHOICES / sizeof *CLOCK_CHOICES), i = 0;
-    while (i < n && CLOCK_CHOICES[i] != dlg_clock) i++;
-    dlg_clock = CLOCK_CHOICES[(i + 1) % n];
+    int i = 0;
+    while (i < CLOCK_CHOICES_N && CLOCK_MINUTES[i] != dlg_clock) i++;
+    dlg_clock = CLOCK_MINUTES[(i + 1) % CLOCK_CHOICES_N];
     paint_dialog();
 }
 static void on_level(lv_event_t *e) { dlg_level = (int)(intptr_t)lv_event_get_user_data(e); paint_dialog(); }
@@ -1258,6 +1259,9 @@ static void apply_snapshot() {
         dlg_coach = snap.prefs.coach;
         dlg_adapt = snap.prefs.adaptive;
         dlg_two = snap.prefs.twoPlayer;
+        dlg_face = game_face = snap.prefs.faceToFace;
+        dlg_clock = snap.prefs.clockMin;
+        set_clock_game(snap.prefs.twoPlayer ? dlg_clock : 0);
         memcpy(dlg_n1, snap.prefs.name1, NAME_LEN);
         memcpy(dlg_n2, snap.prefs.name2, NAME_LEN);
         paint_dialog();

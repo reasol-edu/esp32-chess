@@ -95,6 +95,7 @@ void test_prefs_persist_across_instances() {
     MemSaveStore st;
     { GameCore g; g.setStore(&st);
       NewGameOpts o = two("Ana", "Ni\xC3\xB1o"); o.level = 4; o.humanWhite = false; o.coach = false; o.adaptive = false;
+      o.faceToFace = false; o.clockMin = 10;
       g.newGame(o); }
     GameCore h; h.setStore(&st);                         // "reinicio": se leen las preferencias
     TEST_ASSERT_TRUE(h.snap().prefs.twoPlayer);
@@ -104,6 +105,8 @@ void test_prefs_persist_across_instances() {
     TEST_ASSERT_FALSE(h.snap().prefs.adaptive);
     TEST_ASSERT_EQUAL_STRING("Ana", h.snap().prefs.name1);
     TEST_ASSERT_EQUAL_STRING("Ni\xC3\xB1o", h.snap().prefs.name2);
+    TEST_ASSERT_FALSE(h.snap().prefs.faceToFace);
+    TEST_ASSERT_EQUAL(10, h.snap().prefs.clockMin);
 }
 
 void test_corrupt_prefs_are_ignored() {

@@ -2577,6 +2577,12 @@ bool undoPly() {
 
 int plies() { return hist_n; }
 
+bool historyMove(int i, Move &m) {
+  if (i < 0 || i >= hist_n) return false;
+  m = to_move(hist_step[i]);
+  return true;
+}
+
 bool lastMove(Move &m) {
   if (!hist_n) return false;
   m = to_move(hist_step[hist_n - 1]);

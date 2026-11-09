@@ -29,6 +29,7 @@ int legalMoves(Move *out, int maxOut);        // jugadas legales del bando que m
 bool play(const Move &m);                     // false si no es legal
 bool undoPly();                               // deshace una jugada (medio movimiento)
 int plies();                                  // jugadas hechas desde el inicio
+bool historyMove(int i, Move &m);              // i-ésima jugada hecha desde el inicio (0..plies()-1)
 bool lastMove(Move &m);                       // última jugada hecha (false si ninguna)
 Status status();
 bool search(const Limits &lim, Move &best, int &scoreCp);  // no juega la jugada; false si no hay jugadas

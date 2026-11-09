@@ -1,5 +1,6 @@
 #include "game_core.h"
 #include <string.h>
+#include <vector>
 
 GameCore::GameCore() : rng_(2463534242u) { memset(&snap_, 0, sizeof snap_); snap_.humanWhite = true; }
 
@@ -36,6 +37,9 @@ void GameCore::refresh() {
     snap_.dangerLoss = awaiting_ ? danger_.loss : 0;
     snap_.adaptEvent = event_;
     event_ = 0;
+    for (int i = 0; i < SAVE_SLOTS; i++) snap_.slots[i] = slots_[i];
+    snap_.lastOp = op_;
+    op_ = 0;
     snap_.hasHint = false;
     snap_.seq++;
 }
@@ -48,6 +52,7 @@ void GameCore::newGame(bool humanWhite, int level, bool coach, bool adaptive) {
     adaptive_ = adaptive;
     awaiting_ = false;
     ended_ = false;
+    fromFen_ = false;
     event_ = 0;
     ad_.cooldown = 0;  // el ajuste (adj) se conserva entre partidas
     refresh();
@@ -74,6 +79,7 @@ bool GameCore::loadFen(const char *fen, bool humanWhite, int level) {
     snap_.level = level;
     awaiting_ = false;
     ended_ = false;
+    fromFen_ = true;
     event_ = 0;
     refresh();
     return true;
@@ -136,4 +142,88 @@ bool GameCore::hint() {
     snap_.hasHint = true;
     snap_.seq++;
     return true;
+}
+
+// ── Partidas guardadas ──────────────────────────────────────────────────
+void GameCore::refreshSlots() {
+    static uint8_t buf[SAVE_MAX_BYTES];
+    for (int i = 0; i < SAVE_SLOTS; i++) {
+        slots_[i] = SlotInfo();
+        int n = store_ ? store_->read(i, buf, sizeof buf) : -1;
+        SaveReader r;
+        if (n > 0 && r.parse(buf, n)) {
+            slots_[i].used = true;
+            slots_[i].humanWhite = r.header().humanWhite;
+            slots_[i].level = r.header().level;
+            slots_[i].plies = r.header().plies;
+        }
+    }
+    snap_.seq++;
+    for (int i = 0; i < SAVE_SLOTS; i++) snap_.slots[i] = slots_[i];
+}
+
+bool GameCore::saveSlot(int slot) {
+    static uint8_t buf[SAVE_MAX_BYTES];
+    bool ok = store_ && slot >= 0 && slot < SAVE_SLOTS && !fromFen_ && ce::plies() > 0;
+    if (ok) {
+        SaveHeader h;
+        h.humanWhite = snap_.humanWhite;
+        h.coach = coach_;
+        h.adaptive = adaptive_;
+        h.level = (uint8_t)snap_.level;
+        h.adj = (int8_t)ad_.adj;
+        SaveWriter w(buf, sizeof buf);
+        ok = w.begin(h);
+        for (int i = 0; ok && i < ce::plies(); i++) {
+            ce::Move m;
+            ok = ce::historyMove(i, m) && w.add(m);
+        }
+        size_t n = ok ? w.finish() : 0;
+        ok = n > 0 && store_->write(slot, buf, n);
+    }
+    if (ok) refreshSlots();
+    op_ = ok ? 1 : -1;
+    refresh();
+    return ok;
+}
+
+bool GameCore::loadSlot(int slot) {
+    static uint8_t buf[SAVE_MAX_BYTES];
+    SaveReader r;
+    int n = (store_ && slot >= 0 && slot < SAVE_SLOTS) ? store_->read(slot, buf, sizeof buf) : -1;
+    bool ok = n > 0 && r.parse(buf, n);
+    if (ok) {
+        // Guardar la partida actual para restaurarla si el hueco no se puede rejugar (jugada ilegal)
+        std::vector<ce::Move> old;
+        for (int i = 0; i < ce::plies(); i++) { ce::Move m; if (ce::historyMove(i, m)) old.push_back(m); }
+        ce::newGame();
+        for (int i = 0; ok && i < r.header().plies; i++) ok = ce::play(r.move(i));
+        if (ok) {
+            const SaveHeader &h = r.header();
+            snap_.humanWhite = h.humanWhite;
+            snap_.level = h.level < LEVEL_COUNT ? h.level : LEVEL_COUNT - 1;
+            coach_ = h.coach;
+            adaptive_ = h.adaptive;
+            ad_.adj = h.adj < -Adaptive::MAX_ADJ ? -Adaptive::MAX_ADJ : (h.adj > Adaptive::MAX_ADJ ? Adaptive::MAX_ADJ : h.adj);
+            ad_.cooldown = 0;
+            awaiting_ = false;
+            fromFen_ = false;
+            event_ = 0;
+        } else {
+            ce::newGame();
+            for (const ce::Move &m : old) ce::play(m);
+        }
+    }
+    op_ = ok ? 2 : -2;
+    refresh();
+    if (ok) ended_ = over();  // una partida terminada cargada no vuelve a ajustar el nivel
+    return ok;
+}
+
+bool GameCore::deleteSlot(int slot) {
+    bool ok = store_ && slot >= 0 && slot < SAVE_SLOTS && store_->erase(slot);
+    if (ok) refreshSlots();
+    op_ = ok ? 3 : -3;
+    refresh();
+    return ok;
 }

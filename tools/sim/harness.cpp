@@ -93,6 +93,8 @@ int main(int argc, char **argv) {
         ui_game_debug_tap("mode:2"); ui_game_debug_tap("name:0:Ana"); ui_game_debug_tap("name:1:Luis");
     } else if (scene == "newgame_clock") {
         ui_game_debug_tap("mode:2"); ui_game_debug_tap("name:0:Ana"); ui_game_debug_tap("name:1:Luis"); ui_game_debug_tap("clock"); ui_game_debug_tap("clock");
+    } else if (scene == "newgame_pass") {
+        ui_game_debug_tap("mode:2"); ui_game_debug_tap("name:0:Ana"); ui_game_debug_tap("name:1:Luis"); ui_game_debug_tap("face");
     } else if (scene == "names") {
         ui_game_debug_tap("mode:2"); ui_game_debug_tap("edit:0");
         ui_game_debug_tap("key:A"); ui_game_debug_tap("key:n"); ui_game_debug_tap("key:a");
@@ -145,6 +147,7 @@ int main(int argc, char **argv) {
             ui_game_debug_tap("new"); ui_game_debug_tap("mode:2");
             ui_game_debug_tap("name:0:Ana"); ui_game_debug_tap("name:1:Luis");
             if (scene == "two_clock" || scene == "two_flag") { ui_game_debug_tap("clock"); ui_game_debug_tap("clock"); }  // 5 min
+            if (scene.find("_pass") != std::string::npos) ui_game_debug_tap("face");
             ui_game_debug_tap("play"); run(500);
             if (scene == "two") { play("e2", "e4"); play("e7", "e5"); play("g1", "f3"); }
             else if (scene == "two_black") { play("e2", "e4"); play("e7", "e5"); play("g1", "f3"); tap("g8"); }
@@ -161,6 +164,9 @@ int main(int argc, char **argv) {
             else if (scene == "two_win") { play("f2", "f3"); play("e7", "e5"); play("g2", "g4"); play("d8", "h4"); run(600); }
             else if (scene == "two_clock") { play("e2", "e4"); run(3000); ui_game_debug_tap("left:b:15"); run(300); }
             else if (scene == "two_flag") { play("e2", "e4"); ui_game_debug_tap("left:b:1"); run(2500); }
+            else if (scene == "two_pass") { play("e2", "e4"); play("e7", "e5"); tap("g8"); }
+            else if (scene == "two_pass_promo") { host.load("7k/8/8/8/8/8/p7/6K1 b - -", true, 1); run(300); tap("a2"); tap("a1"); }
+            else if (scene == "two_pass_win") { play("f2", "f3"); play("e7", "e5"); play("g2", "g4"); play("d8", "h4"); run(600); }
             else if (scene == "two_resign") { play("e2", "e4"); ui_game_debug_tap("resign:1"); run(100); ui_game_debug_tap("resign:1"); run(600); }
             else if (scene == "two_promo") { host.load("7k/8/8/8/8/8/p7/6K1 b - -", true, 1); run(300); tap("a2"); tap("a1"); }
             else if (scene == "two_capture") { host.load("rnbqkbnr/ppp2ppp/8/3pp3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq -", true, 1); run(300); play("e4", "d5"); play("d8", "d5"); }

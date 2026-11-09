@@ -52,7 +52,7 @@ enum { K_SAVE, K_LOAD, K_DEL };
 static int armed_slot = -1, armed_kind = -1;
 static lv_timer_t *armed_timer, *toast_timer;
 static lv_obj_t *lvl_card[LEVEL_COUNT];
-static lv_obj_t *col_btn[2], *coach_btn, *adapt_btn, *clock_btn;
+static lv_obj_t *col_btn[2], *coach_btn, *adapt_btn, *clock_btn, *face_btn, *face_hint;
 static lv_obj_t *warn_card, *warn_title, *warn_sub, *lvl_dot[LEVEL_COUNT];
 static bool dlg_coach = true, dlg_adapt = true;
 static int dlg_level = 1;
@@ -62,6 +62,8 @@ static bool banner_shown;
 
 // Modo dos jugadores
 static bool s_two;                          // modo que muestra la pantalla ahora mismo
+static bool s_rot;                          // dos jugadores cara a cara: lo del bando de arriba va girado 180°
+static bool dlg_face = true, game_face = true;   // elegido en el diálogo / de la partida en curso (false = se pasan el aparato)
 struct SidePanel { lv_obj_t *root, *dot, *name, *status, *tray, *resign; };
 static SidePanel side[2];                   // 0 = blancas (abajo), 1 = negras (arriba, girado 180°)
 static lv_obj_t *mid_strip, *mid_undo, *status_pill, *banner2;
@@ -152,7 +154,7 @@ static void run_anim(lv_obj_t *o, lv_anim_exec_xcb_t cb, int from, int to, int m
 // En el modo cara a cara las negras se dibujan giradas 180° para que las vea derechas quien juega desde arriba.
 static const lv_image_dsc_t *sprite(int8_t p) {
     int i = piece_index(p);
-    return (s_two && p < 0) ? piece_rot180(i) : &piece_sprites[i];
+    return (s_rot && p < 0) ? piece_rot180(i) : &piece_sprites[i];
 }
 
 static lv_obj_t *new_piece(int s, int8_t p) {
@@ -539,7 +541,7 @@ static void show_banner(const char *title, const char *sub, uint32_t col) {
         lv_label_set_text(s, sub);
         lv_obj_set_style_text_font(t, strlen(title) > 14 ? &lv_font_montserrat_42 : &lv_font_montserrat_48, 0);
         lv_obj_set_style_text_color(t, C(col), 0);
-        if (b == banner || s_two) { lv_obj_remove_flag(b, LV_OBJ_FLAG_HIDDEN); lv_obj_move_foreground(b); }
+        if (b == banner || s_rot) { lv_obj_remove_flag(b, LV_OBJ_FLAG_HIDDEN); lv_obj_move_foreground(b); }
     }
 }
 
@@ -590,7 +592,7 @@ static void open_promo(int from, int to) {
     bool w = s_two ? snap.whiteToMove : snap.humanWhite;   // en dos jugadores promociona quien tiene el turno
     lv_obj_set_style_transform_pivot_x(dlg_promo, 512, 0);
     lv_obj_set_style_transform_pivot_y(dlg_promo, 300, 0);
-    lv_obj_set_style_transform_rotation(dlg_promo, (s_two && !w) ? 1800 : 0, 0);   // las negras lo ven derecho desde arriba
+    lv_obj_set_style_transform_rotation(dlg_promo, (s_rot && !w) ? 1800 : 0, 0);   // las negras lo ven derecho desde arriba
     lv_obj_t *row = lv_obj_get_child(dlg_promo, 1);
     static const char ps[4] = {'q', 'r', 'b', 'n'};
     static const int type[4] = {5, 4, 3, 2};
@@ -623,6 +625,9 @@ static void paint_dialog() {
         toggle_style(clock_btn, dlg_clock > 0);
         set_btn_text(clock_btn, t);
     }
+    toggle_style(face_btn, dlg_face);
+    set_btn_text(face_btn, dlg_face ? "Cara a cara" : "Pasar el aparato");
+    lv_label_set_text(face_hint, dlg_face ? "El aparato en la mesa, cada uno a un lado." : "Os pasáis el aparato; no se gira nada.");
     set_btn_text(coach_btn, dlg_coach ? "Avisos: Sí" : "Avisos: No");
     set_btn_text(adapt_btn, dlg_adapt ? "Adaptable: Sí" : "Adaptable: No");
     set_btn_text(name_btn_1p, dlg_n1[0] ? dlg_n1 : "Mi nombre");
@@ -652,6 +657,7 @@ static void start_game() {
     select_square(-1);
     have_snap = false;
     set_clock_game(dlg_two ? dlg_clock : 0);
+    game_face = dlg_face;
     NewGameOpts o;
     o.humanWhite = dlg_white;
     o.level = dlg_level;
@@ -827,8 +833,9 @@ static void build_new_dialog() {
         label(c, i == 0 ? "Juegan las blancas" : "Juegan las negras", &lv_font_montserrat_28, 0xB8B4DD, 150, 14);
         name_btn_2p[i] = button(c, "", 0x3F8CE6, 150, 60, 724, 72, on_name_btn, (void *)(intptr_t)i, &lv_font_montserrat_42);
     }
-    label(grp_two, "El aparato en la mesa, cada uno a un lado.", &lv_font_montserrat_28, 0xB8B4DD, 38, 420);
+    face_hint = label(grp_two, "", &lv_font_montserrat_28, 0xB8B4DD, 38, 420);
     clock_btn = button(grp_two, "", 0xFFB300, 38, 470, 296, 64, on_clock);
+    face_btn = button(grp_two, "", 0xFFB300, 346, 470, 340, 64, [](lv_event_t *) { dlg_face = !dlg_face; paint_dialog(); });
     lv_obj_add_flag(grp_two, LV_OBJ_FLAG_HIDDEN);
 
     button(p, "¡A jugar!", 0x2FB67C, 700, 470, 238, 64, on_play);
@@ -983,7 +990,6 @@ static void build_two_panels() {
         if (i == 1) {  // quien juega con negras está al otro lado de la mesa
             lv_obj_set_style_transform_pivot_x(s.root, PW / 2, 0);
             lv_obj_set_style_transform_pivot_y(s.root, 125, 0);
-            lv_obj_set_style_transform_rotation(s.root, 1800, 0);
         }
     }
     mid_strip = mk(scr, PX, 262, PW, 76, 0x000000, 0, 0);
@@ -1027,7 +1033,8 @@ static void apply_mode() {
     for (int i = 0; i < 2; i++) { if (s_two) lv_obj_remove_flag(side[i].root, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(side[i].root, LV_OBJ_FLAG_HIDDEN); }
     if (s_two) lv_obj_remove_flag(mid_strip, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(mid_strip, LV_OBJ_FLAG_HIDDEN);
     // Carteles de fin: uno en el centro, o dos (uno girado) en la mitad de cada jugador
-    lv_obj_set_pos(banner, BX + 40, s_two ? BY + 300 : BY + 205);
+    lv_obj_set_style_transform_rotation(side[1].root, s_rot ? 1800 : 0, 0);
+    lv_obj_set_pos(banner, BX + 40, s_rot ? BY + 300 : BY + 205);
     lv_obj_set_pos(banner2, BX + 40, BY + 110);
 }
 
@@ -1111,7 +1118,7 @@ static void slot_action(int kind, int slot) {
     }
     disarm();
     if (kind == K_SAVE) host->post_save(slot);
-    else if (kind == K_LOAD) host->post_load(slot);
+    else if (kind == K_LOAD) { game_face = dlg_face; host->post_load(slot); }
     else host->post_delete(slot);
     refresh_slots();
 }
@@ -1255,9 +1262,11 @@ static void apply_snapshot() {
         memcpy(dlg_n2, snap.prefs.name2, NAME_LEN);
         paint_dialog();
     }
-    bool mode_changed = first || snap.twoPlayer != s_two;
-    if (mode_changed) {  // las piezas negras cambian de sprite (giradas en dos jugadores): se recrean
+    bool rot_new = snap.twoPlayer && game_face;
+    bool mode_changed = first || snap.twoPlayer != s_two || rot_new != s_rot;
+    if (mode_changed) {  // las piezas negras cambian de sprite (giradas cara a cara): se recrean
         s_two = snap.twoPlayer;
+        s_rot = rot_new;
         apply_mode();
         for (int i = 0; i < 64; i++) drop_piece(i, false);
     }
@@ -1365,6 +1374,7 @@ void ui_game_debug_tap(const char *w) {
     else if (!strcmp(w, "coach")) { dlg_coach = !dlg_coach; refresh_dialog(); }
     else if (!strcmp(w, "adapt")) { dlg_adapt = !dlg_adapt; refresh_dialog(); }
     else if (!strcmp(w, "confirm")) on_hint(nullptr);
+    else if (!strcmp(w, "face")) { dlg_face = !dlg_face; refresh_dialog(); }
     else if (!strcmp(w, "clock")) { on_clock(nullptr); refresh_dialog(); }
     else if (!strncmp(w, "left:", 5)) { clock_left[w[5] == 'w' ? 0 : 1] = atoi(w + 7) * 1000; update_clock_ui(); }
     else if (!strcmp(w, "slots")) on_slots_open(nullptr);

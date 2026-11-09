@@ -4,8 +4,8 @@ Ajedrez táctil para la **Guition JC1060P470** (ESP32-P4, pantalla 1024×600), p
 Usa **LVGL 9.6** con la unidad de dibujo **PPA** del ESP32-P4 y el motor de
 [hpsaturn/esp32-chess-engine](https://github.com/hpsaturn/esp32-chess-engine).
 
-> **Estado: listo para probar en la placa.** Todo compila (con y sin PPA) y la UI se ha revisado con capturas del simulador,
-> pero **todavía no se ha ejecutado en el hardware real**.
+> **Estado: probado en la placa (JC1060P470, ESP32-P4 rev v3.2, panel V2):** arranca, el PPA funciona (24 sprites con SRM en 18,7 ms)
+> y el táctil responde. Quedan rayas verticales tenues en grises medios y falta medir el rendimiento y las partidas.
 
 ## Estado
 
@@ -63,6 +63,17 @@ tools/sim/shot.sh mid                         # captura de la UI en el PC (sin p
 
 Al arrancar, el monitor serie debe mostrar `[PPA] 24 sprites generados con SRM en … us` y `LVGL 9.6.0 PPA=1 sprites_ppa=1`.
 Si el PPA falla, la UI escala por software y lo indica (`sprites_ppa=0`). Cada jugada de la CPU registra su tiempo (`[chess] CPU nivel N: X ms`).
+
+## La placa: revisiones
+
+- **Chip ESP32-P4 rev v3.x** (el de los lotes nuevos): hay que compilar con `board = esp32-p4_r3-evboard`. La variante
+  `esp32-p4-evboard` ("ES pre rev.300") es para el silicio antiguo y en un v3 no arranca (pantalla negra, sin puerto USB).
+- **Subir el firmware:** `pio run -t upload` falla con el esptool 5.2 que trae PlatformIO (el stub se cuelga con
+  "Guru Meditation Error"; [FAQ de Espressif](https://github.com/espressif/esp-faq/blob/master/docs/en/development-environment/firmware-update.rst)).
+  Instala `esptool==5.3.dev3` en un venv y usa `ESPTOOL=.../esptool tools/flash.sh`.
+- **Panel "V2"** (lote 2026, etiqueta V2 en la trasera): otros tiempos, otra secuencia de inicio (`src/jd9165_v2.h`) y reset del
+  panel en GPIO0. Es el predeterminado; para el panel antiguo compila con `-DPANEL_JC1060P470_V1`.
+  Pendiente: quedan unas rayas verticales tenues en tonos de gris medio (no dependen del reloj de píxel ni del carril DSI).
 
 ## Estructura
 

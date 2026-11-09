@@ -9,13 +9,24 @@
 
 #define TFT_BL 23
 
-Arduino_ESP32DSIPanel *dsipanel = new Arduino_ESP32DSIPanel(
-    160, 160, 40,      // hsync pulse / back porch / front porch
-    23, 12, 10,        // vsync pulse / back porch / front porch
-    48000000);
+// Dos versiones de la placa: el panel del lote 2026 ("V2" en la trasera, chip ESP32-P4 rev v3.x) usa otros tiempos,
+// otra secuencia de inicio y reset en GPIO0. Para el panel antiguo, compilar con -DPANEL_JC1060P470_V1.
+#ifdef PANEL_JC1060P470_V1
+#define PANEL_TIMING 160, 160, 40, 23, 12, 10, 48000000   // hsync pulse/back/front, vsync pulse/back/front, pclk
+#define PANEL_LANE_MBPS 750
+#define PANEL_RST GFX_NOT_DEFINED
+#define PANEL_INIT jd9165_init_operations, sizeof(jd9165_init_operations) / sizeof(lcd_init_cmd_t)
+#else
+#include "jd9165_v2.h"
+#define PANEL_TIMING 24, 136, 160, 2, 21, 12, 52000000
+#define PANEL_LANE_MBPS 750
+#define PANEL_RST 0
+#define PANEL_INIT jd9165_v2_init_operations, sizeof(jd9165_v2_init_operations) / sizeof(lcd_init_cmd_t)
+#endif
+
+Arduino_ESP32DSIPanel *dsipanel = new Arduino_ESP32DSIPanel(PANEL_TIMING, PANEL_LANE_MBPS);
 Arduino_GFX *gfx = new Arduino_DSI_Display(
-    SCREEN_WIDTH, SCREEN_HEIGHT, dsipanel, 0 /* rotation */, true /* auto_flush */,
-    GFX_NOT_DEFINED, jd9165_init_operations, sizeof(jd9165_init_operations) / sizeof(lcd_init_cmd_t));
+    SCREEN_WIDTH, SCREEN_HEIGHT, dsipanel, 0 /* rotation */, true /* auto_flush */, PANEL_RST, PANEL_INIT);
 
 static GameService service;
 static uint8_t *fb_lvgl;

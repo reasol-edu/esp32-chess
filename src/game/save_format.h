@@ -4,25 +4,40 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 #include "chess_api.h"
+#include "names.h"
 
 constexpr int SAVE_MAX_PLIES = 1000;
-constexpr size_t SAVE_MAX_BYTES = 8 + 2 * SAVE_MAX_PLIES + 2;
+constexpr size_t SAVE_HEADER_BYTES = 8 + 2 * NAME_LEN;
+constexpr size_t SAVE_MAX_BYTES = SAVE_HEADER_BYTES + 2 * SAVE_MAX_PLIES + 2;
 
 struct SaveHeader {
-    bool humanWhite = true, coach = true, adaptive = true;
+    bool humanWhite = true, coach = true, adaptive = true, twoPlayer = false;
     uint8_t level = 0;
     int8_t adj = 0;      // ajuste del modo adaptable
     uint16_t plies = 0;
+    char name1[NAME_LEN] = {0}, name2[NAME_LEN] = {0};  // jugador 1 (blancas en 2 jugadores) y jugador 2
 };
 
 // Resumen de un hueco para mostrarlo en la UI.
 struct SlotInfo {
     bool used = false;
     bool humanWhite = true;
+    bool twoPlayer = false;
     uint8_t level = 0;
     uint16_t plies = 0;
+    char name1[NAME_LEN] = {0}, name2[NAME_LEN] = {0};
 };
+
+// Preferencias de la última partida: se recuerdan entre arranques.
+struct GamePrefs {
+    bool humanWhite = true, coach = true, adaptive = true, twoPlayer = false;
+    uint8_t level = 1;
+    char name1[NAME_LEN] = {0}, name2[NAME_LEN] = {0};
+};
+size_t prefs_encode(const GamePrefs &p, uint8_t *buf, size_t cap);   // longitud o 0
+bool prefs_decode(const uint8_t *buf, size_t len, GamePrefs &out);
 
 uint16_t save_crc16(const uint8_t *p, size_t n);
 

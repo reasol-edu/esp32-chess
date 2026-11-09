@@ -7,6 +7,7 @@
 #include <vector>
 
 constexpr int SAVE_SLOTS = 3;
+constexpr int PREFS_SLOT = SAVE_SLOTS;  // el almacén tiene un hueco extra para las preferencias
 
 struct SaveStore {
     virtual ~SaveStore() {}
@@ -16,9 +17,9 @@ struct SaveStore {
 };
 
 struct MemSaveStore : SaveStore {
-    std::vector<uint8_t> d[SAVE_SLOTS];
+    std::vector<uint8_t> d[SAVE_SLOTS + 1];
     bool failWrites = false;  // para probar errores
-    bool write(int s, const uint8_t *p, size_t n) override { if (failWrites || s < 0 || s >= SAVE_SLOTS) return false; d[s].assign(p, p + n); return true; }
-    int read(int s, uint8_t *b, size_t cap) override { if (s < 0 || s >= SAVE_SLOTS || d[s].empty() || d[s].size() > cap) return -1; memcpy(b, d[s].data(), d[s].size()); return (int)d[s].size(); }
-    bool erase(int s) override { if (s < 0 || s >= SAVE_SLOTS) return false; d[s].clear(); return true; }
+    bool write(int s, const uint8_t *p, size_t n) override { if (failWrites || s < 0 || s > PREFS_SLOT) return false; d[s].assign(p, p + n); return true; }
+    int read(int s, uint8_t *b, size_t cap) override { if (s < 0 || s > PREFS_SLOT || d[s].empty() || d[s].size() > cap) return -1; memcpy(b, d[s].data(), d[s].size()); return (int)d[s].size(); }
+    bool erase(int s) override { if (s < 0 || s > PREFS_SLOT) return false; d[s].clear(); return true; }
 };

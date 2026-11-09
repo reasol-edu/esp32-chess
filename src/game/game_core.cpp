@@ -18,7 +18,13 @@ void GameCore::refresh() {
     snap_.status = ce::status();
     snap_.plies = ce::plies();
     snap_.hasLast = ce::lastMove(snap_.last);
-    snap_.nLegal = snap_.status >= ce::ST_MATE ? 0 : ce::legalMoves(snap_.legal, 256);
+    snap_.over = snap_.status >= ce::ST_MATE || resigned_ != 0;
+    snap_.resigned = resigned_;
+    snap_.twoPlayer = twoPlayer_;
+    memcpy(snap_.name1, name1_, NAME_LEN);
+    memcpy(snap_.name2, name2_, NAME_LEN);
+    snap_.prefs = prefs_;
+    snap_.nLegal = snap_.over ? 0 : ce::legalMoves(snap_.legal, 256);
     static const uint8_t init[6] = {8, 2, 2, 2, 1, 1};
     int cw[6] = {0}, cb[6] = {0};
     for (int i = 0; i < 64; i++) {
@@ -45,23 +51,71 @@ void GameCore::refresh() {
 }
 
 void GameCore::newGame(bool humanWhite, int level, bool coach, bool adaptive) {
+    NewGameOpts o;
+    o.humanWhite = humanWhite;
+    o.level = level;
+    o.coach = coach;
+    o.adaptive = adaptive;
+    memcpy(o.name1, name1_, NAME_LEN);  // se conservan los nombres de la partida anterior
+    memcpy(o.name2, name2_, NAME_LEN);
+    o.twoPlayer = false;
+    newGame(o);
+}
+
+void GameCore::newGame(const NewGameOpts &o) {
     ce::newGame();
-    snap_.humanWhite = humanWhite;
-    snap_.level = level;
-    coach_ = coach;
-    adaptive_ = adaptive;
+    twoPlayer_ = o.twoPlayer;
+    snap_.humanWhite = twoPlayer_ ? true : o.humanWhite;
+    snap_.level = o.level < 0 ? 0 : (o.level >= LEVEL_COUNT ? LEVEL_COUNT - 1 : o.level);
+    coach_ = twoPlayer_ ? false : o.coach;      // sin avisos ni adaptación entre dos personas
+    adaptive_ = twoPlayer_ ? false : o.adaptive;
+    name_sanitize(name1_, o.name1);
+    name_sanitize(name2_, o.name2);
     awaiting_ = false;
     ended_ = false;
     fromFen_ = false;
+    resigned_ = 0;
     event_ = 0;
     ad_.cooldown = 0;  // el ajuste (adj) se conserva entre partidas
+    // Recordar lo elegido para el próximo arranque
+    prefs_.humanWhite = o.humanWhite;
+    prefs_.level = (uint8_t)snap_.level;
+    prefs_.coach = o.coach;
+    prefs_.adaptive = o.adaptive;
+    prefs_.twoPlayer = o.twoPlayer;
+    memcpy(prefs_.name1, name1_, NAME_LEN);
+    memcpy(prefs_.name2, name2_, NAME_LEN);
+    uint8_t buf[4 + 2 * NAME_LEN + 2];
+    size_t n = prefs_encode(prefs_, buf, sizeof buf);
+    if (store_ && n) store_->write(PREFS_SLOT, buf, n);
     refresh();
+}
+
+void GameCore::loadPrefs() {
+    uint8_t buf[4 + 2 * NAME_LEN + 2];
+    GamePrefs p;
+    int n = store_ ? store_->read(PREFS_SLOT, buf, sizeof buf) : -1;
+    if (n > 0 && prefs_decode(buf, n, p)) {
+        prefs_ = p;
+        memcpy(name1_, p.name1, NAME_LEN);   // los nombres vuelven a estar disponibles tras reiniciar
+        memcpy(name2_, p.name2, NAME_LEN);
+    }
+}
+
+bool GameCore::resign(bool white) {
+    if (over() || ce::plies() == 0) return false;
+    resigned_ = white ? 1 : 2;
+    awaiting_ = false;
+    if (!ended_ && adaptive_ && !twoPlayer_) ad_.onGameEnd(white != snap_.humanWhite, white == snap_.humanWhite);
+    ended_ = true;
+    refresh();
+    return true;
 }
 
 void GameCore::checkEnd() {
     if (ended_ || !over()) return;
     ended_ = true;
-    if (snap_.status != ce::ST_MATE) return;
+    if (snap_.status != ce::ST_MATE || twoPlayer_) return;
     bool humanMated = snap_.whiteToMove == snap_.humanWhite;
     if (adaptive_) ad_.onGameEnd(!humanMated, humanMated);
 }
@@ -90,7 +144,7 @@ bool GameCore::humanMove(const ce::Move &m) {
     awaiting_ = false;
     refresh();
     checkEnd();
-    if (coach_ && !over()) {
+    if (coach_ && !twoPlayer_ && !over()) {
         danger_ = analyze_danger(snap_.humanWhite);
         if (danger_.found) { awaiting_ = true; refresh(); }
     }
@@ -125,7 +179,8 @@ bool GameCore::undo() {
     if (ce::plies() == 0) return false;
     // Con el aviso pendiente (o si ya le toca a la CPU) solo se retira la jugada del humano;
     // en su turno se retiran la respuesta de la CPU y su jugada anterior.
-    int n = cpuToMove() ? 1 : 2;
+    int n = (twoPlayer_ || cpuToMove()) ? 1 : 2;
+    resigned_ = 0;
     while (n-- > 0 && ce::plies() > 0) ce::undoPly();
     awaiting_ = false;
     ended_ = false;
@@ -134,7 +189,7 @@ bool GameCore::undo() {
 }
 
 bool GameCore::hint() {
-    if (!humanToMove()) return false;
+    if (!humanToMove() || twoPlayer_) return false;
     ce::Move mv;
     int score;
     if (!ce::search({4, 1500}, mv, score)) return false;
@@ -154,17 +209,21 @@ void GameCore::refreshSlots() {
         if (n > 0 && r.parse(buf, n)) {
             slots_[i].used = true;
             slots_[i].humanWhite = r.header().humanWhite;
+            slots_[i].twoPlayer = r.header().twoPlayer;
+            memcpy(slots_[i].name1, r.header().name1, NAME_LEN);
+            memcpy(slots_[i].name2, r.header().name2, NAME_LEN);
             slots_[i].level = r.header().level;
             slots_[i].plies = r.header().plies;
         }
     }
     snap_.seq++;
+    snap_.prefs = prefs_;  // al asignar el almacén ya están leídas las preferencias
     for (int i = 0; i < SAVE_SLOTS; i++) snap_.slots[i] = slots_[i];
 }
 
 bool GameCore::saveSlot(int slot) {
     static uint8_t buf[SAVE_MAX_BYTES];
-    bool ok = store_ && slot >= 0 && slot < SAVE_SLOTS && !fromFen_ && ce::plies() > 0;
+    bool ok = store_ && slot >= 0 && slot < SAVE_SLOTS && !fromFen_ && ce::plies() > 0 && resigned_ == 0;
     if (ok) {
         SaveHeader h;
         h.humanWhite = snap_.humanWhite;
@@ -172,6 +231,9 @@ bool GameCore::saveSlot(int slot) {
         h.adaptive = adaptive_;
         h.level = (uint8_t)snap_.level;
         h.adj = (int8_t)ad_.adj;
+        h.twoPlayer = twoPlayer_;
+        memcpy(h.name1, name1_, NAME_LEN);
+        memcpy(h.name2, name2_, NAME_LEN);
         SaveWriter w(buf, sizeof buf);
         ok = w.begin(h);
         for (int i = 0; ok && i < ce::plies(); i++) {
@@ -202,8 +264,12 @@ bool GameCore::loadSlot(int slot) {
             const SaveHeader &h = r.header();
             snap_.humanWhite = h.humanWhite;
             snap_.level = h.level < LEVEL_COUNT ? h.level : LEVEL_COUNT - 1;
-            coach_ = h.coach;
-            adaptive_ = h.adaptive;
+            twoPlayer_ = h.twoPlayer;
+            coach_ = h.coach && !twoPlayer_;
+            adaptive_ = h.adaptive && !twoPlayer_;
+            memcpy(name1_, h.name1, NAME_LEN);
+            memcpy(name2_, h.name2, NAME_LEN);
+            resigned_ = 0;
             ad_.adj = h.adj < -Adaptive::MAX_ADJ ? -Adaptive::MAX_ADJ : (h.adj > Adaptive::MAX_ADJ ? Adaptive::MAX_ADJ : h.adj);
             ad_.cooldown = 0;
             awaiting_ = false;

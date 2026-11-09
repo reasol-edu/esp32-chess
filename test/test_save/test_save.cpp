@@ -28,12 +28,13 @@ static void play_some(GameCore &g, int rounds) {
 void test_format_roundtrip() {
     uint8_t buf[SAVE_MAX_BYTES];
     SaveHeader h; h.humanWhite = false; h.coach = false; h.adaptive = true; h.level = 4; h.adj = -2;
+    h.twoPlayer = true; strcpy(h.name1, "Ana"); strcpy(h.name2, "Ni\xC3\xB1o");
     SaveWriter w(buf, sizeof buf);
     TEST_ASSERT_TRUE(w.begin(h));
     Move in[3] = {sq("e2", "e4"), sq("a7", "a8", 'q'), sq("h2", "h1", 'n')};
     for (auto &m : in) TEST_ASSERT_TRUE(w.add(m));
     size_t n = w.finish();
-    TEST_ASSERT_EQUAL(8 + 6 + 2, (int)n);
+    TEST_ASSERT_EQUAL((int)SAVE_HEADER_BYTES + 6 + 2, (int)n);
     SaveReader r;
     TEST_ASSERT_TRUE(r.parse(buf, n));
     TEST_ASSERT_FALSE(r.header().humanWhite);
@@ -42,6 +43,9 @@ void test_format_roundtrip() {
     TEST_ASSERT_EQUAL(4, r.header().level);
     TEST_ASSERT_EQUAL(-2, r.header().adj);
     TEST_ASSERT_EQUAL(3, r.header().plies);
+    TEST_ASSERT_TRUE(r.header().twoPlayer);
+    TEST_ASSERT_EQUAL_STRING("Ana", r.header().name1);
+    TEST_ASSERT_EQUAL_STRING("Ni\xC3\xB1o", r.header().name2);
     for (int i = 0; i < 3; i++) TEST_ASSERT_TRUE(r.move(i) == in[i]);
 }
 
@@ -54,7 +58,7 @@ void test_format_detects_corruption() {
     SaveReader r;
     TEST_ASSERT_TRUE(r.parse(buf, n));
     uint8_t bad[SAVE_MAX_BYTES];
-    memcpy(bad, buf, n); bad[8] ^= 0x01;            // jugada alterada
+    memcpy(bad, buf, n); bad[SAVE_HEADER_BYTES] ^= 0x01;            // jugada alterada
     TEST_ASSERT_FALSE(r.parse(bad, n));
     TEST_ASSERT_FALSE(r.parse(buf, n - 1));          // truncado
     memcpy(bad, buf, n); bad[0] = 0;                 // marca incorrecta
@@ -114,7 +118,7 @@ void test_corrupt_slot_keeps_current_game() {
     g.newGame(true, 0, false, false);
     play_some(g, 2);
     g.saveSlot(0);
-    st.d[0][8] ^= 0x7F;                               // se corrompe el hueco
+    st.d[0][SAVE_HEADER_BYTES] ^= 0x7F;                               // se corrompe el hueco
     play_some(g, 1);
     int plies = g.snap().plies; int8_t board[64]; memcpy(board, g.snap().board, 64);
     TEST_ASSERT_FALSE(g.loadSlot(0));

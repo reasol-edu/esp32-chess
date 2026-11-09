@@ -3,10 +3,10 @@
 
 static const char *NS = "chess";
 
-static void key(int slot, char *k) { snprintf(k, 8, "slot%d", slot); }
+static void key(int slot, char *k) { if (slot == PREFS_SLOT) strcpy(k, "prefs"); else snprintf(k, 8, "slot%d", slot); }
 
 bool NvsSaveStore::write(int slot, const uint8_t *data, size_t len) {
-    if (slot < 0 || slot >= SAVE_SLOTS) return false;
+    if (slot < 0 || slot > PREFS_SLOT) return false;
     Preferences p;
     if (!p.begin(NS, false)) return false;
     char k[8]; key(slot, k);
@@ -16,7 +16,7 @@ bool NvsSaveStore::write(int slot, const uint8_t *data, size_t len) {
 }
 
 int NvsSaveStore::read(int slot, uint8_t *buf, size_t cap) {
-    if (slot < 0 || slot >= SAVE_SLOTS) return -1;
+    if (slot < 0 || slot > PREFS_SLOT) return -1;
     Preferences p;
     if (!p.begin(NS, true)) return -1;           // solo lectura: si no existe el espacio, hueco vacío
     char k[8]; key(slot, k);
@@ -28,7 +28,7 @@ int NvsSaveStore::read(int slot, uint8_t *buf, size_t cap) {
 }
 
 bool NvsSaveStore::erase(int slot) {
-    if (slot < 0 || slot >= SAVE_SLOTS) return false;
+    if (slot < 0 || slot > PREFS_SLOT) return false;
     Preferences p;
     if (!p.begin(NS, false)) return false;
     char k[8]; key(slot, k);

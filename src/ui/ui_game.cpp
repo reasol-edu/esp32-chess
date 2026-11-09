@@ -711,11 +711,13 @@ static void build_board() {
     }
     for (int s = 0; s < 64; s++) {  // marcas de jugadas legales (hijas de la casilla)
         dot_obj[s] = mk(sq_obj[s], 24, 24, 22, 22, 0x2E7D32, LV_RADIUS_CIRCLE, 150);
+        lv_obj_remove_flag(dot_obj[s], LV_OBJ_FLAG_CLICKABLE);   // si no, se llevan el toque y la casilla no se entera
         lv_obj_add_flag(dot_obj[s], LV_OBJ_FLAG_HIDDEN);
         ring_obj[s] = mk(sq_obj[s], 3, 3, 64, 64, 0x000000, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_border_width(ring_obj[s], 7, 0);
         lv_obj_set_style_border_color(ring_obj[s], C(0x2E7D32), 0);
         lv_obj_set_style_border_opa(ring_obj[s], LV_OPA_60, 0);
+        lv_obj_remove_flag(ring_obj[s], LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(ring_obj[s], LV_OBJ_FLAG_HIDDEN);
     }
     for (int i = 0; i < 8; i++) {  // coordenadas sobre el marco

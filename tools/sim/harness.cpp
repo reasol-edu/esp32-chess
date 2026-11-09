@@ -108,7 +108,9 @@ int main(int argc, char **argv) {
         ui_game_debug_tap(scene == "zorro" ? "lvl:3" : "lvl:1");
         ui_game_debug_tap("play");
         run(600);
-        if (scene == "select") { tap("e2"); }
+        if (scene == "click_dot") {   // toques reales (indev) sobre una casilla con punto de destino: e2 -> e4
+            click(335, 475); run(400); click(335, 335); run(1500);
+        } else if (scene == "select") { tap("e2"); }
         else if (scene == "mid") {
             play("e2", "e4"); play("g1", "f3"); play("f1", "c4"); tap("f3");
         } else if (scene == "capture") {

@@ -39,7 +39,7 @@ static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
 
 static void touch_cb(lv_indev_t *, lv_indev_data_t *data) {
     int x, y;
-    if (touch_read(x, y)) { data->state = LV_INDEV_STATE_PRESSED; data->point.x = x; data->point.y = y; }
+    if (touch_poll(x, y)) { data->state = LV_INDEV_STATE_PRESSED; data->point.x = x; data->point.y = y; }
     else data->state = LV_INDEV_STATE_RELEASED;
 }
 
@@ -48,6 +48,7 @@ static uint32_t tick_cb() { return millis(); }
 void setup() {
     Serial.begin(115200);
     touch_init();
+    touch_start_task();
     gfx->begin();
     pinMode(TFT_BL, OUTPUT);
     digitalWrite(TFT_BL, HIGH);

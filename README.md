@@ -33,6 +33,10 @@ Usa **LVGL 9.6** con la unidad de dibujo **PPA** del ESP32-P4 y el motor de
   Quien juega con negras se sienta al otro lado: su panel (nombre, turno, capturas y *Rendirse*), el cartel de fin y el diálogo de
   coronación salen girados 180°, y sus piezas se dibujan giradas (con el PPA, SRM con rotación de 180°; si falla, por software).
   Sin CPU, sin avisos y sin modo adaptable; *Deshacer* retira una jugada y *Rendirse* pide confirmación.
+- **Reloj de ajedrez** (opcional, solo en dos jugadores; botón *Reloj* del diálogo: no, 3, 5, 10 o 15 minutos por jugador). Corre
+  para quien tiene el turno desde la primera jugada de las blancas, se detiene con cualquier diálogo abierto y, al agotarse,
+  pierde ese jugador (cartel "Se acabó el tiempo de …"). Los últimos 20 s se marcan en rojo. No se guarda con la partida
+  ni se recuerda entre arranques; una partida cargada empieza con el reloj lleno.
 - **Nombres** (opcionales, hasta 10 caracteres): se escriben con un teclado en pantalla con ñ y vocales con tilde. Se recuerdan
   entre arranques junto con la última elección (modo, nivel, color, avisos, adaptable) y se guardan con cada partida. Solo
   viven en la memoria del aparato; no se envían a ningún sitio. Sin nombre, se muestra "Blancas"/"Negras" (o "Tú" en una inicial).

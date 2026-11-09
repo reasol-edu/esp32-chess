@@ -52,7 +52,7 @@ enum { K_SAVE, K_LOAD, K_DEL };
 static int armed_slot = -1, armed_kind = -1;
 static lv_timer_t *armed_timer, *toast_timer;
 static lv_obj_t *lvl_card[LEVEL_COUNT];
-static lv_obj_t *col_btn[2], *coach_btn, *adapt_btn;
+static lv_obj_t *col_btn[2], *coach_btn, *adapt_btn, *clock_btn;
 static lv_obj_t *warn_card, *warn_title, *warn_sub, *lvl_dot[LEVEL_COUNT];
 static bool dlg_coach = true, dlg_adapt = true;
 static int dlg_level = 1;
@@ -315,6 +315,69 @@ static bool dialogs_closed() {
 }
 static bool interactive() { return human_turn() && dialogs_closed(); }
 
+// ── Reloj de ajedrez (opcional) ───────────────────────────────────────────
+// Solo en dos jugadores. Vive en la UI: corre para el bando que tiene el turno desde la primera jugada, se detiene con cualquier
+// diálogo abierto, con el aviso de peligro pendiente o al terminar, y al agotarse rinde a ese bando.
+static const int CLOCK_CHOICES[] = {0, 3, 5, 10, 15};   // minutos por jugador; 0 = sin reloj
+static int dlg_clock;                                    // elegido en el diálogo
+static int clock_min;                                    // de la partida en curso
+static int32_t clock_left[2];                            // ms restantes: 0 blancas, 1 negras
+static uint32_t clock_last;
+static int flag_fell = -1;                               // bando al que se le acabó el tiempo
+static lv_obj_t *chip_root[2], *chip_lbl[2];             // marcador de cada bando, en su panel
+
+static lv_obj_t *make_chip(lv_obj_t *parent, int x, int y, int w, int h, lv_obj_t **lbl) {
+    lv_obj_t *r = mk(parent, x, y, w, h, 0x1B1940, h / 2);
+    lv_obj_set_style_border_width(r, 2, 0);
+    lv_obj_set_style_border_color(r, C(0x4A4780), 0);
+    *lbl = label(r, "0:00", &lv_font_montserrat_32, 0xFFFFFF, 0, 0);
+    lv_obj_set_width(*lbl, w - 8);
+    lv_obj_set_style_text_align(*lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(*lbl, LV_ALIGN_CENTER, 0, -2);
+    return r;
+}
+
+static void update_clock_ui() {
+    bool on = clock_min > 0 && s_two;
+    bool running = have_snap && !snap.over && snap.plies > 0;
+    for (int c = 0; c < 2; c++) {
+        if (on) lv_obj_remove_flag(chip_root[c], LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(chip_root[c], LV_OBJ_FLAG_HIDDEN);
+        int sec = (clock_left[c] + 999) / 1000;
+        char buf[16];
+        snprintf(buf, sizeof buf, "%d:%02d", sec / 60, sec % 60);
+        lv_label_set_text(chip_lbl[c], buf);
+        bool active = running && (c == 0) == snap.whiteToMove;
+        lv_obj_set_style_text_color(chip_lbl[c], C(sec <= 20 ? 0xFF8F8F : 0xFFFFFF), 0);
+        lv_obj_set_style_border_color(chip_root[c], C(active ? 0xFFB300 : 0x4A4780), 0);
+        lv_obj_set_style_border_width(chip_root[c], active ? 5 : 2, 0);
+    }
+}
+
+static void set_clock_game(int minutes) {
+    clock_min = minutes;
+    clock_left[0] = clock_left[1] = minutes * 60000;
+    flag_fell = -1;
+    clock_last = lv_tick_get();
+    update_clock_ui();
+}
+
+static void clock_tick(lv_timer_t *) {
+    uint32_t now = lv_tick_get();
+    int32_t dt = (int32_t)(now - clock_last);
+    clock_last = now;
+    if (!clock_min || !s_two || !have_snap || snap.over || snap.plies == 0 || flag_fell >= 0 || !dialogs_closed()) return;
+    int side = snap.whiteToMove ? 0 : 1;
+    clock_left[side] -= dt;
+    if (clock_left[side] <= 0) {  // se acabó el tiempo: pierde ese bando
+        clock_left[side] = 0;
+        flag_fell = side;
+        host->stop_search();
+        host->post_resign(side == 0);
+    }
+    update_clock_ui();
+}
+
+
 // Fila de piezas capturadas (dama ... peón) con su contador; devuelve la x final.
 static int tray_row(lv_obj_t *parent, int x, int y, const uint8_t *miss, bool white_pieces) {
     for (int t = 4; t >= 0; t--) {
@@ -490,7 +553,7 @@ static void end_effects() {
         else if (snap.status == ce::ST_MATE) win = snap.whiteToMove ? 1 : 0;
         if (win >= 0) {
             snprintf(title, sizeof title, "¡Ganó %s!", pname(win));
-            snprintf(sub, sizeof sub, snap.resigned ? "%s se ha rendido" : "¡Jaque mate!", pname(1 - win));
+            snprintf(sub, sizeof sub, flag_fell >= 0 ? "Se acabó el tiempo de %s" : snap.resigned ? "%s se ha rendido" : "¡Jaque mate!", pname(1 - win));
             show_banner(title, sub, 0xFFD23F);
             confetti();
         } else {
@@ -554,6 +617,12 @@ static void paint_dialog() {
     for (int i = 0; i < 2; i++) toggle_style(col_btn[i], (i == 0) == dlg_white);
     toggle_style(coach_btn, dlg_coach);
     toggle_style(adapt_btn, dlg_adapt);
+    {
+        char t[24];
+        if (dlg_clock) snprintf(t, sizeof t, "Reloj: %d min", dlg_clock); else snprintf(t, sizeof t, "Reloj: No");
+        toggle_style(clock_btn, dlg_clock > 0);
+        set_btn_text(clock_btn, t);
+    }
     set_btn_text(coach_btn, dlg_coach ? "Avisos: Sí" : "Avisos: No");
     set_btn_text(adapt_btn, dlg_adapt ? "Adaptable: Sí" : "Adaptable: No");
     set_btn_text(name_btn_1p, dlg_n1[0] ? dlg_n1 : "Mi nombre");
@@ -582,6 +651,7 @@ static void start_game() {
     banner_shown = false;
     select_square(-1);
     have_snap = false;
+    set_clock_game(dlg_two ? dlg_clock : 0);
     NewGameOpts o;
     o.humanWhite = dlg_white;
     o.level = dlg_level;
@@ -600,6 +670,12 @@ static void on_hint(lv_event_t *) {
     else if (human_turn()) host->post_hint();
 }
 static void on_play(lv_event_t *) { start_game(); }
+static void on_clock(lv_event_t *) {  // rota: sin reloj → 3 → 5 → 10 → 15 minutos
+    int n = (int)(sizeof CLOCK_CHOICES / sizeof *CLOCK_CHOICES), i = 0;
+    while (i < n && CLOCK_CHOICES[i] != dlg_clock) i++;
+    dlg_clock = CLOCK_CHOICES[(i + 1) % n];
+    paint_dialog();
+}
 static void on_level(lv_event_t *e) { dlg_level = (int)(intptr_t)lv_event_get_user_data(e); paint_dialog(); }
 static void on_mode(lv_event_t *e) { dlg_two = (intptr_t)lv_event_get_user_data(e) == 1; paint_dialog(); }
 static void on_name_btn(lv_event_t *e) { open_name_editor((int)(intptr_t)lv_event_get_user_data(e)); }
@@ -752,6 +828,7 @@ static void build_new_dialog() {
         name_btn_2p[i] = button(c, "", 0x3F8CE6, 150, 60, 724, 72, on_name_btn, (void *)(intptr_t)i, &lv_font_montserrat_42);
     }
     label(grp_two, "El aparato en la mesa, cada uno a un lado.", &lv_font_montserrat_28, 0xB8B4DD, 38, 420);
+    clock_btn = button(grp_two, "", 0xFFB300, 38, 470, 296, 64, on_clock);
     lv_obj_add_flag(grp_two, LV_OBJ_FLAG_HIDDEN);
 
     button(p, "¡A jugar!", 0x2FB67C, 700, 470, 238, 64, on_play);
@@ -898,8 +975,9 @@ static void build_two_panels() {
         lv_obj_set_width(s.name, 300);
         lv_label_set_long_mode(s.name, LV_LABEL_LONG_CLIP);
         s.status = label(s.root, "", &lv_font_montserrat_28, 0xFFD23F, 18, 68);
-        lv_obj_set_width(s.status, 356);
+        lv_obj_set_width(s.status, 236);
         lv_label_set_long_mode(s.status, LV_LABEL_LONG_CLIP);
+        chip_root[i] = make_chip(s.root, 262, 62, 112, 44, &chip_lbl[i]);
         s.tray = mk(s.root, 12, 108, 368, 44, 0x000000, 0, 0);
         s.resign = button(s.root, "Rendirse", 0xD9534F, 18, 160, 356, 74, on_resign, (void *)(intptr_t)i);
         if (i == 1) {  // quien juega con negras está al otro lado de la mesa
@@ -928,7 +1006,7 @@ static void update_two_player() {
         lv_label_set_text(side[i].name, pname(i));
         const char *st;
         if (snap.over) {
-            if (snap.resigned) st = snap.resigned == (i == 0 ? 1 : 2) ? "Te has rendido" : "¡Has ganado!";
+            if (snap.resigned) st = snap.resigned == (i == 0 ? 1 : 2) ? (flag_fell >= 0 ? "¡Sin tiempo!" : "Te has rendido") : "¡Has ganado!";
             else if (snap.status == ce::ST_MATE) st = (i == 0) == wtm ? "Jaque mate" : "¡Has ganado!";
             else st = "¡Tablas!";
         } else if (mine) st = snap.status == ce::ST_CHECK ? "¡Estás en jaque!" : "¡Tu turno!";
@@ -1154,6 +1232,7 @@ static void handle_op() {
             lv_obj_add_flag(dlg_slots, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(banner, LV_OBJ_FLAG_HIDDEN);
             banner_shown = game_over();
+            set_clock_game(snap.twoPlayer ? dlg_clock : 0);   // la partida cargada vuelve a empezar con el reloj lleno
             update_buttons();
             break;
         case 3: show_toast("Partida borrada", 0xFFD23F); break;
@@ -1208,6 +1287,7 @@ static void apply_snapshot() {
     paint_squares();
     update_buttons();
     handle_op();
+    update_clock_ui();
     if (!lv_obj_has_flag(dlg_slots, LV_OBJ_FLAG_HIDDEN)) refresh_slots();
     if (game_over()) end_effects(); else if (!animate && !same_pos) banner_shown = false;
     have_snap = true;
@@ -1249,6 +1329,7 @@ void ui_game_create(lv_obj_t *screen, GameHost *h) {
     build_avatar(dlg_level);
     open_new_dialog();
     lv_timer_create(poll_cb, 33, nullptr);
+    lv_timer_create(clock_tick, 200, nullptr);
 }
 
 // ── API de pruebas ────────────────────────────────────────────────────────
@@ -1284,6 +1365,8 @@ void ui_game_debug_tap(const char *w) {
     else if (!strcmp(w, "coach")) { dlg_coach = !dlg_coach; refresh_dialog(); }
     else if (!strcmp(w, "adapt")) { dlg_adapt = !dlg_adapt; refresh_dialog(); }
     else if (!strcmp(w, "confirm")) on_hint(nullptr);
+    else if (!strcmp(w, "clock")) { on_clock(nullptr); refresh_dialog(); }
+    else if (!strncmp(w, "left:", 5)) { clock_left[w[5] == 'w' ? 0 : 1] = atoi(w + 7) * 1000; update_clock_ui(); }
     else if (!strcmp(w, "slots")) on_slots_open(nullptr);
     else if (!strncmp(w, "save:", 5)) slot_action(K_SAVE, atoi(w + 5));
     else if (!strncmp(w, "load:", 5)) slot_action(K_LOAD, atoi(w + 5));

@@ -5,7 +5,7 @@ Usa **LVGL 9.6** con la unidad de dibujo **PPA** del ESP32-P4 y el motor de
 [hpsaturn/esp32-chess-engine](https://github.com/hpsaturn/esp32-chess-engine).
 
 > **Estado: probado en la placa (JC1060P470, ESP32-P4 rev v3.2, panel V2):** arranca, el PPA funciona (24 sprites con SRM en 18,7 ms)
-> y el táctil responde. Quedan rayas verticales tenues en grises medios y falta medir el rendimiento y las partidas.
+> y el táctil responde. Falta medir el rendimiento (PPA frente a sin PPA) y probar partidas largas, guardado y dos jugadores.
 
 ## Estado
 
@@ -73,7 +73,9 @@ Si el PPA falla, la UI escala por software y lo indica (`sprites_ppa=0`). Cada j
   Instala `esptool==5.3.dev3` en un venv y usa `ESPTOOL=.../esptool tools/flash.sh`.
 - **Panel "V2"** (lote 2026, etiqueta V2 en la trasera): otros tiempos, otra secuencia de inicio (`src/jd9165_v2.h`) y reset del
   panel en GPIO0. Es el predeterminado; para el panel antiguo compila con `-DPANEL_JC1060P470_V1`.
-  Pendiente: quedan unas rayas verticales tenues en tonos de gris medio (no dependen del reloj de píxel ni del carril DSI).
+  Ajustes que quedan: 52 MHz de reloj de píxel, 750 Mbps por carril y RGB565 (COLMOD 0x55 en la secuencia de inicio).
+  Durante la puesta a punto se vieron rayas verticales tenues en grises medios que desaparecieron sin que se aislara la causa
+  (se probó carril 600/900, reloj 40/48 MHz y `disable_lp`, sin efecto o peor); si reaparecen, empezar por ahí.
 
 ## Estructura
 

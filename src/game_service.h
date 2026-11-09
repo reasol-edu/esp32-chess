@@ -11,11 +11,12 @@
 class GameService : public GameHost {
 public:
     void begin();
-    void post_new(bool humanWhite, int level, bool coach, bool adaptive) override;
+    void post_new(const NewGameOpts &o) override;
     void post_human_move(const ce::Move &m) override;
     void post_undo() override;
     void post_hint() override;
     void post_confirm() override;
+    void post_resign(bool white) override;
     void post_save(int slot) override;
     void post_load(int slot) override;
     void post_delete(int slot) override;
@@ -23,8 +24,8 @@ public:
     bool poll(Snapshot &out) override;
 
 private:
-    enum Type : uint8_t { NEW, MOVE, UNDO, HINT, CONFIRM, SAVE, LOAD, DELETE_ };
-    struct Cmd { Type type; bool white; int level; bool coach, adaptive; ce::Move move; int slot; };
+    enum Type : uint8_t { NEW, MOVE, UNDO, HINT, CONFIRM, SAVE, LOAD, DELETE_, RESIGN };
+    struct Cmd { Type type; bool white; ce::Move move; int slot; NewGameOpts opts; };
     static void taskEntry(void *self) { ((GameService *)self)->run(); }
     void run();
     void post(const Cmd &c);

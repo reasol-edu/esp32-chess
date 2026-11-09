@@ -7,11 +7,12 @@
 // en el simulador y en los tests, un host síncrono sobre GameCore.
 struct GameHost {
     virtual ~GameHost() {}
-    virtual void post_new(bool humanWhite, int level, bool coach, bool adaptive) = 0;
+    virtual void post_new(const NewGameOpts &o) = 0;
     virtual void post_human_move(const ce::Move &m) = 0;  // el host responde luego con la jugada de la CPU
     virtual void post_undo() = 0;
     virtual void post_hint() = 0;
     virtual void post_confirm() = 0;  // seguir adelante pese al aviso de peligro
+    virtual void post_resign(bool white) = 0;  // dos jugadores: se rinde un bando
     virtual void post_save(int slot) = 0;
     virtual void post_load(int slot) = 0;
     virtual void post_delete(int slot) = 0;
@@ -25,4 +26,4 @@ void ui_game_create(lv_obj_t *screen, GameHost *host);
 // Solo simulador/tests: acciones sintéticas.
 void ui_game_debug_tap_square(int sq);
 void ui_game_debug_open_new_dialog();
-void ui_game_debug_tap(const char *what);  // "undo" | "hint" | "new" | "play" | "lvl:N" | "white" | "black" | "coach" | "adapt" | "slots" | "save:N" | "load:N" | "del:N" | "promo:q|r|b|n"
+void ui_game_debug_tap(const char *what);  // "undo" | "hint" | "new" | "play" | "lvl:N" | "white" | "black" | "coach" | "adapt" | "mode:1|2" | "name:N:texto" | "edit:N" | "resign:N" | "slots" | "save:N" | "load:N" | "del:N" | "promo:q|r|b|n"

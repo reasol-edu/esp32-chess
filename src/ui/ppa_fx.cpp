@@ -16,8 +16,8 @@
 #include "esp_timer.h"
 
 static const size_t LINE = 128;  // línea de caché L2 del P4
-static lv_image_dsc_t lifted_dsc[12], mini_dsc[12];
-static uint8_t *bufs[25];
+static lv_image_dsc_t lifted_dsc[12], mini_dsc[12], rot_dsc[12];
+static uint8_t *bufs[40];
 static int nbuf;
 static bool active;
 
@@ -29,7 +29,7 @@ static uint8_t *alloc_buf(size_t n) {
     return p;
 }
 
-static bool scale(ppa_client_handle_t cli, const uint8_t *src, int sw, uint8_t *dst, int dw, float k) {
+static bool scale(ppa_client_handle_t cli, const uint8_t *src, int sw, uint8_t *dst, int dw, float k, ppa_srm_rotation_angle_t rot = PPA_SRM_ROTATION_ANGLE_0) {
     ppa_srm_oper_config_t op;
     memset(&op, 0, sizeof op);
     op.in.buffer = src;
@@ -41,7 +41,7 @@ static bool scale(ppa_client_handle_t cli, const uint8_t *src, int sw, uint8_t *
     op.out.pic_w = dw;
     op.out.pic_h = dw;
     op.out.srm_cm = PPA_SRM_COLOR_MODE_ARGB8888;
-    op.rotation_angle = PPA_SRM_ROTATION_ANGLE_0;
+    op.rotation_angle = rot;
     op.scale_x = k;
     op.scale_y = k;
     op.alpha_update_mode = PPA_ALPHA_NO_CHANGE;
@@ -83,6 +83,17 @@ void ppa_fx_init() {
         uint8_t *big = alloc_buf(80 * 80 * 4), *small = alloc_buf(32 * 32 * 4);
         ok = big && small && scale(cli, src, PIECE_PX, big, 80, 1.25f) && scale(cli, src, PIECE_PX, small, 32, 0.5f) && sane(big, 80) && sane(small, 32);
         if (ok) { fill_dsc(lifted_dsc[i], big, 80); fill_dsc(mini_dsc[i], small, 32); }
+        if (ok && i >= 6) {  // negras giradas 180° para el modo cara a cara (SRM con rotación)
+            uint8_t *rot = alloc_buf(PIECE_PX * PIECE_PX * 4);
+            bool rok = rot && scale(cli, src, PIECE_PX, rot, PIECE_PX, 1.0f, PPA_SRM_ROTATION_ANGLE_180);
+            if (rok) {  // comprobar el alfa contra la rotación por software
+                esp_cache_msync(rot, up(PIECE_PX * PIECE_PX * 4), ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_INVALIDATE);
+                const uint8_t *s = src;
+                for (int k = 0; k < PIECE_PX * PIECE_PX && rok; k++) rok = rot[k * 4 + 3] == s[(PIECE_PX * PIECE_PX - 1 - k) * 4 + 3];
+            }
+            if (rok) fill_dsc(rot_dsc[i], rot, PIECE_PX);   // si falla, la UI gira por software
+            else Serial.printf("[PPA] rotación 180 de la pieza %d no válida: respaldo por software\n", i);
+        }
     }
     ppa_unregister_client(cli);
     if (ok) {
@@ -98,10 +109,12 @@ void ppa_fx_init() {
 bool ppa_fx_active() { return active; }
 const lv_image_dsc_t *ppa_fx_lifted(int idx) { return active ? &lifted_dsc[idx] : nullptr; }
 const lv_image_dsc_t *ppa_fx_mini(int idx) { return active ? &mini_dsc[idx] : nullptr; }
+const lv_image_dsc_t *ppa_fx_rot180(int idx) { return (active && idx >= 6 && rot_dsc[idx].data) ? &rot_dsc[idx] : nullptr; }
 
 #else
 void ppa_fx_init() {}
 bool ppa_fx_active() { return false; }
 const lv_image_dsc_t *ppa_fx_lifted(int) { return nullptr; }
 const lv_image_dsc_t *ppa_fx_mini(int) { return nullptr; }
+const lv_image_dsc_t *ppa_fx_rot180(int) { return nullptr; }
 #endif

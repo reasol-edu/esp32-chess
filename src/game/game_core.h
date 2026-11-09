@@ -55,6 +55,7 @@ public:
     void newGame(const NewGameOpts &o);
     void newGame(bool humanWhite, int level, bool coach = true, bool adaptive = true);
     bool resign(bool white);            // rendición de un bando
+    void newGameFromPrefs();            // arranque: empieza con lo elegido la última vez
     bool loadFen(const char *fen, bool humanWhite, int level);  // posición arbitraria (tests, problemas)
     bool humanToMove() const { return !over() && (twoPlayer_ || snap_.whiteToMove == snap_.humanWhite); }  // en 2 jugadores siempre le toca a una persona
     bool cpuToMove() const { return !twoPlayer_ && snap_.whiteToMove != snap_.humanWhite && !over(); }

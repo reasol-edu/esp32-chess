@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <initializer_list>
 
 LV_FONT_DECLARE(lv_font_montserrat_14);
 LV_FONT_DECLARE(lv_font_montserrat_28);
@@ -59,6 +60,28 @@ static bool dlg_white = true;
 static int promo_from = -1, promo_to = -1;
 static bool banner_shown;
 
+// Modo dos jugadores
+static bool s_two;                          // modo que muestra la pantalla ahora mismo
+struct SidePanel { lv_obj_t *root, *dot, *name, *status, *tray, *resign; };
+static SidePanel side[2];                   // 0 = blancas (abajo), 1 = negras (arriba, girado 180°)
+static lv_obj_t *mid_strip, *mid_undo, *status_pill, *banner2;
+static int resign_armed = -1;
+static lv_timer_t *resign_timer;
+
+// Diálogo de nueva partida: modo, nombres y editor de nombres con teclado
+static bool dlg_two;
+static char dlg_n1[NAME_LEN], dlg_n2[NAME_LEN];
+static lv_obj_t *grp_one, *grp_two, *mode_btn[2], *name_btn_1p, *name_btn_2p[2];
+static lv_obj_t *dlg_name, *name_ta, *name_title, *name_kb;
+static int name_target;
+static bool kb_upper = true;
+
+static void paint_dialog();
+static void refresh_dialog();
+static void update_buttons();
+static void set_btn_text(lv_obj_t *b, const char *txt);
+static void open_name_editor(int target);
+
 // ── Utilidades ────────────────────────────────────────────────────────────
 static inline int sq_col(int s) { return s & 7; }
 static inline int sq_row(int s) { return s >> 3; }
@@ -87,7 +110,7 @@ static lv_obj_t *label(lv_obj_t *parent, const char *txt, const lv_font_t *font,
     return l;
 }
 
-static lv_obj_t *button(lv_obj_t *parent, const char *txt, uint32_t col, int x, int y, int w, int h, lv_event_cb_t cb, void *ud = nullptr) {
+static lv_obj_t *button(lv_obj_t *parent, const char *txt, uint32_t col, int x, int y, int w, int h, lv_event_cb_t cb, void *ud = nullptr, const lv_font_t *font = nullptr) {
     lv_obj_t *b = mk(parent, x, y, w, h, col, 22);
     lv_obj_set_style_bg_grad_color(b, lv_color_darken(C(col), 35), 0);
     lv_obj_set_style_bg_grad_dir(b, LV_GRAD_DIR_VER, 0);
@@ -100,7 +123,7 @@ static lv_obj_t *button(lv_obj_t *parent, const char *txt, uint32_t col, int x, 
     lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, txt);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_font(l, font ? font : &lv_font_montserrat_32, 0);
     lv_obj_set_style_text_color(l, C(0xFFFFFF), 0);
     lv_obj_center(l);
     lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, ud);
@@ -126,7 +149,11 @@ static void run_anim(lv_obj_t *o, lv_anim_exec_xcb_t cb, int from, int to, int m
 }
 
 // ── Piezas ────────────────────────────────────────────────────────────────
-static const lv_image_dsc_t *sprite(int8_t p) { return &piece_sprites[piece_index(p)]; }
+// En el modo cara a cara las negras se dibujan giradas 180° para que las vea derechas quien juega desde arriba.
+static const lv_image_dsc_t *sprite(int8_t p) {
+    int i = piece_index(p);
+    return (s_two && p < 0) ? piece_rot180(i) : &piece_sprites[i];
+}
 
 static lv_obj_t *new_piece(int s, int8_t p) {
     lv_obj_t *im = lv_image_create(board);
@@ -154,7 +181,7 @@ static void unlift(int s) {
 
 static void lift(int s) {
     if (s < 0 || !p_obj[s]) return;
-    const lv_image_dsc_t *big = ppa_fx_lifted(piece_index(p_type[s]));
+    const lv_image_dsc_t *big = (s_two && p_type[s] < 0) ? nullptr : ppa_fx_lifted(piece_index(p_type[s]));  // el levantado del PPA no está girado
     if (big) {  // sprite escalado por el PPA al arrancar
         lv_image_set_src(p_obj[s], big);
         lv_obj_set_pos(p_obj[s], disp_x(s) + (SQ - big->header.w) / 2, disp_y(s) + (SQ - big->header.h) / 2 - 4);
@@ -275,47 +302,64 @@ static void build_avatar(int level) {
     lv_label_set_text(name_lbl, lv.name);
 }
 
-static bool human_turn() { return have_snap && snap.whiteToMove == snap.humanWhite && !(snap.status >= ce::ST_MATE) && !snap.awaiting; }
-static bool game_over() { return have_snap && snap.status >= ce::ST_MATE; }
+static bool human_turn() { return have_snap && !snap.over && !snap.awaiting && (snap.twoPlayer || snap.whiteToMove == snap.humanWhite); }
+static bool game_over() { return have_snap && snap.over; }
+// Nombre mostrado de cada bando en dos jugadores
+static const char *pname(int i) {
+    const char *n = i == 0 ? snap.name1 : snap.name2;
+    return n[0] ? n : (i == 0 ? "Blancas" : "Negras");
+}
 static bool dialogs_closed() {
-    return lv_obj_has_flag(dlg_new, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(dlg_promo, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(dlg_slots, LV_OBJ_FLAG_HIDDEN);
+    return lv_obj_has_flag(dlg_new, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(dlg_promo, LV_OBJ_FLAG_HIDDEN) &&
+           lv_obj_has_flag(dlg_slots, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(dlg_name, LV_OBJ_FLAG_HIDDEN);
 }
 static bool interactive() { return human_turn() && dialogs_closed(); }
 
+// Fila de piezas capturadas (dama ... peón) con su contador; devuelve la x final.
+static int tray_row(lv_obj_t *parent, int x, int y, const uint8_t *miss, bool white_pieces) {
+    for (int t = 4; t >= 0; t--) {
+        if (!miss[t]) continue;
+        int idx = (white_pieces ? 0 : 6) + t;
+        lv_obj_t *im = lv_image_create(parent);
+        const lv_image_dsc_t *mini = ppa_fx_mini(idx);
+        if (mini) {
+            lv_image_set_src(im, mini);
+        } else {
+            lv_image_set_src(im, &piece_sprites[idx]);
+            lv_image_set_pivot(im, 0, 0);
+            lv_image_set_scale(im, 128);
+        }
+        lv_obj_set_pos(im, x, y);
+        x += 32;
+        if (miss[t] > 1) {
+            char b[8];
+            snprintf(b, sizeof b, "x%d", miss[t]);
+            label(parent, b, &lv_font_montserrat_14, 0xFFFFFF, x, y + 22);
+            x += 24;
+        }
+        x += 6;
+    }
+    return x;
+}
+
 static void rebuild_tray() {
     lv_obj_clean(tray_cont);
-    lv_obj_t *me = mk(tray_cont, 4, 8, 50, 50, 0x3F8CE6, LV_RADIUS_CIRCLE);  // insignia del jugador
-    lv_obj_t *me_l = label(me, "Tú", &lv_font_montserrat_28, 0xFFFFFF, 0, 0);
+    // Insignia del jugador: su inicial si puso nombre, "Tú" si no
+    char ini[8] = "Tú";
+    if (snap.name1[0]) {
+        size_t n = 1;
+        while ((snap.name1[n] & 0xC0) == 0x80) n++;   // primer carácter UTF-8
+        memcpy(ini, snap.name1, n);
+        ini[n] = 0;
+    }
+    lv_obj_t *me = mk(tray_cont, 4, 8, 50, 50, 0x3F8CE6, LV_RADIUS_CIRCLE);
+    lv_obj_t *me_l = label(me, ini, &lv_font_montserrat_28, 0xFFFFFF, 0, 0);
     lv_obj_center(me_l);
     Avatar cpu = avatar_create(tray_cont, snap.level, 50);                    // y la mascota del rival
     lv_obj_set_pos(cpu.root, 4, 68);
     for (int row = 0; row < 2; row++) {
         const uint8_t *miss = (row == 0) == snap.humanWhite ? snap.missingBlack : snap.missingWhite;  // lo que falta al otro bando
-        int x = 66;
-        bool white_pieces = !((row == 0) == snap.humanWhite);
-        for (int t = 4; t >= 0; t--) {  // dama ... peón
-            if (!miss[t]) continue;
-            int idx = (white_pieces ? 0 : 6) + t;
-            lv_obj_t *im = lv_image_create(tray_cont);
-            const lv_image_dsc_t *mini = ppa_fx_mini(idx);
-            if (mini) {
-                lv_image_set_src(im, mini);
-                lv_obj_set_pos(im, x, 14 + row * 60);
-            } else {
-                lv_image_set_src(im, &piece_sprites[idx]);
-                lv_image_set_pivot(im, 0, 0);
-                lv_image_set_scale(im, 128);
-                lv_obj_set_pos(im, x, 14 + row * 60);
-            }
-            x += 32;
-            if (miss[t] > 1) {
-                char b[8];
-                snprintf(b, sizeof b, "x%d", miss[t]);
-                label(tray_cont, b, &lv_font_montserrat_14, 0xFFFFFF, x, 36 + row * 60);
-                x += 24;
-            }
-            x += 6;
-        }
+        tray_row(tray_cont, 66, 14 + row * 60, miss, !((row == 0) == snap.humanWhite));
     }
 }
 
@@ -385,8 +429,15 @@ static void update_dots() {
         lv_obj_set_style_bg_color(lvl_dot[i], C(i <= snap.effLevel ? (snap.adaptive && snap.effLevel != snap.level ? 0x4DD0E1 : 0xFFB300) : 0x4A4780), 0);
 }
 
+static void set_enabled(lv_obj_t *b, bool on) { if (on) lv_obj_remove_state(b, LV_STATE_DISABLED); else lv_obj_add_state(b, LV_STATE_DISABLED); }
+
 static void update_buttons() {
     bool dlg_closed = dialogs_closed();
+    if (s_two) {  // dos jugadores: deshacer (cualquiera) y rendirse (cada uno)
+        set_enabled(mid_undo, dlg_closed && snap.plies > 0);
+        for (int i = 0; i < 2; i++) set_enabled(side[i].resign, dlg_closed && !snap.over && snap.plies > 0);
+        return;
+    }
     if (snap.awaiting) {  // aviso: "Deshacer" retira la jugada, "Seguir" deja que la CPU responda
         set_btn_text(btn_undo, "Deshacer");
         set_btn_text(btn_hint, "Seguir");
@@ -398,9 +449,8 @@ static void update_buttons() {
     set_btn_text(btn_hint, "Pista");
     lv_obj_add_flag(warn_card, LV_OBJ_FLAG_HIDDEN);
     bool can = human_turn() && dlg_closed;
-    auto set = [](lv_obj_t *b, bool on) { if (on) lv_obj_remove_state(b, LV_STATE_DISABLED); else lv_obj_add_state(b, LV_STATE_DISABLED); };
-    set(btn_undo, can && snap.plies > 0);
-    set(btn_hint, can);
+    set_enabled(btn_undo, can && snap.plies > 0);
+    set_enabled(btn_hint, can);
 }
 
 // ── Confeti y banner de fin ───────────────────────────────────────────────
@@ -414,20 +464,40 @@ static void confetti() {
     }
 }
 
-static void banner_cb(lv_event_t *) { lv_obj_add_flag(banner, LV_OBJ_FLAG_HIDDEN); }
+static void banner_cb(lv_event_t *) {
+    lv_obj_add_flag(banner, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(banner2, LV_OBJ_FLAG_HIDDEN);
+}
 
 static void show_banner(const char *title, const char *sub, uint32_t col) {
-    lv_obj_t *t = lv_obj_get_child(banner, 0), *s = lv_obj_get_child(banner, 1);
-    lv_label_set_text(t, title);
-    lv_label_set_text(s, sub);
-    lv_obj_set_style_text_color(t, C(col), 0);
-    lv_obj_remove_flag(banner, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(banner);
+    for (lv_obj_t *b : {banner, banner2}) {
+        lv_obj_t *t = lv_obj_get_child(b, 0), *s = lv_obj_get_child(b, 1);
+        lv_label_set_text(t, title);
+        lv_label_set_text(s, sub);
+        lv_obj_set_style_text_font(t, strlen(title) > 14 ? &lv_font_montserrat_42 : &lv_font_montserrat_48, 0);
+        lv_obj_set_style_text_color(t, C(col), 0);
+        if (b == banner || s_two) { lv_obj_remove_flag(b, LV_OBJ_FLAG_HIDDEN); lv_obj_move_foreground(b); }
+    }
 }
 
 static void end_effects() {
     if (banner_shown) return;
     banner_shown = true;
+    char title[64], sub[64];
+    if (s_two) {  // gana un nombre, no "tú"
+        int win = -1;                                  // 0 blancas, 1 negras, -1 tablas
+        if (snap.resigned) win = snap.resigned == 1 ? 1 : 0;
+        else if (snap.status == ce::ST_MATE) win = snap.whiteToMove ? 1 : 0;
+        if (win >= 0) {
+            snprintf(title, sizeof title, "¡Ganó %s!", pname(win));
+            snprintf(sub, sizeof sub, snap.resigned ? "%s se ha rendido" : "¡Jaque mate!", pname(1 - win));
+            show_banner(title, sub, 0xFFD23F);
+            confetti();
+        } else {
+            show_banner("¡Tablas!", "Nadie ha ganado", 0x9BD3FF);
+        }
+        return;
+    }
     bool human_on_move = snap.whiteToMove == snap.humanWhite;
     if (snap.status == ce::ST_MATE && !human_on_move) { show_banner("¡Ganaste!", "¡Jaque mate! Toca para cerrar", 0xFFD23F); confetti(); }
     else if (snap.status == ce::ST_MATE) show_banner("Casi...", "Esta vez ganó el rival. ¡Otra!", 0xFF8F8F);
@@ -454,7 +524,10 @@ static void promo_choose(char p) {
 static void open_promo(int from, int to) {
     promo_from = from;
     promo_to = to;
-    bool w = snap.humanWhite;
+    bool w = s_two ? snap.whiteToMove : snap.humanWhite;   // en dos jugadores promociona quien tiene el turno
+    lv_obj_set_style_transform_pivot_x(dlg_promo, 512, 0);
+    lv_obj_set_style_transform_pivot_y(dlg_promo, 300, 0);
+    lv_obj_set_style_transform_rotation(dlg_promo, (s_two && !w) ? 1800 : 0, 0);   // las negras lo ven derecho desde arriba
     lv_obj_t *row = lv_obj_get_child(dlg_promo, 1);
     static const char ps[4] = {'q', 'r', 'b', 'n'};
     static const int type[4] = {5, 4, 3, 2};
@@ -469,61 +542,68 @@ static void open_promo(int from, int to) {
 }
 
 static void toggle_style(lv_obj_t *b, bool on);
-static void refresh_dialog() {
+
+static void paint_dialog() {
+    for (int i = 0; i < 2; i++) toggle_style(mode_btn[i], (i == 1) == dlg_two);
+    if (dlg_two) { lv_obj_add_flag(grp_one, LV_OBJ_FLAG_HIDDEN); lv_obj_remove_flag(grp_two, LV_OBJ_FLAG_HIDDEN); }
+    else         { lv_obj_remove_flag(grp_one, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(grp_two, LV_OBJ_FLAG_HIDDEN); }
     for (int i = 0; i < LEVEL_COUNT; i++) {
         lv_obj_set_style_border_color(lvl_card[i], C(i == dlg_level ? 0xFFB300 : 0x4A4780), 0);
         lv_obj_set_style_border_width(lvl_card[i], i == dlg_level ? 6 : 2, 0);
     }
-    for (int i = 0; i < 2; i++) {
-        bool on = (i == 0) == dlg_white;
-        lv_obj_set_style_bg_color(col_btn[i], C(on ? 0xFFB300 : 0x4A4780), 0);
-        lv_obj_set_style_bg_grad_color(col_btn[i], C(on ? 0xE08F00 : 0x35336B), 0);
-    }
+    for (int i = 0; i < 2; i++) toggle_style(col_btn[i], (i == 0) == dlg_white);
     toggle_style(coach_btn, dlg_coach);
     toggle_style(adapt_btn, dlg_adapt);
     set_btn_text(coach_btn, dlg_coach ? "Avisos: Sí" : "Avisos: No");
     set_btn_text(adapt_btn, dlg_adapt ? "Adaptable: Sí" : "Adaptable: No");
+    set_btn_text(name_btn_1p, dlg_n1[0] ? dlg_n1 : "Mi nombre");
+    for (int i = 0; i < 2; i++) {
+        const char *n = i == 0 ? dlg_n1 : dlg_n2;
+        lv_obj_t *l = lv_obj_get_child(name_btn_2p[i], 0);
+        lv_label_set_text(l, n[0] ? n : "Toca para escribir el nombre");
+        lv_obj_set_style_text_font(l, n[0] ? &lv_font_montserrat_42 : &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_color(l, C(n[0] ? 0xFFFFFF : 0xB8B4DD), 0);
+        lv_obj_center(l);
+    }
+}
+
+static void refresh_dialog() {
+    paint_dialog();
     lv_obj_remove_flag(dlg_new, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(dlg_new);
     update_buttons();
 }
 
-static void open_new_dialog() {
-    dlg_level = snap.level;
-    refresh_dialog();
-}
+static void open_new_dialog() { refresh_dialog(); }
 
 static void start_game() {
     lv_obj_add_flag(dlg_new, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(banner, LV_OBJ_FLAG_HIDDEN);
+    banner_cb(nullptr);
     banner_shown = false;
     select_square(-1);
     have_snap = false;
-    host->post_new(dlg_white, dlg_level, dlg_coach, dlg_adapt);
+    NewGameOpts o;
+    o.humanWhite = dlg_white;
+    o.level = dlg_level;
+    o.coach = dlg_coach;
+    o.adaptive = dlg_adapt;
+    o.twoPlayer = dlg_two;
+    name_sanitize(o.name1, dlg_n1);
+    name_sanitize(o.name2, dlg_n2);
+    host->post_new(o);
 }
 
 static void on_new(lv_event_t *) { host->stop_search(); open_new_dialog(); }
-static void on_undo(lv_event_t *) { if (human_turn() || snap.awaiting) { select_square(-1); host->post_undo(); } }
+static void on_undo(lv_event_t *) { if (human_turn() || snap.awaiting || (snap.twoPlayer && snap.plies > 0)) { select_square(-1); host->post_undo(); } }
 static void on_hint(lv_event_t *) {
     if (snap.awaiting) host->post_confirm();
     else if (human_turn()) host->post_hint();
 }
 static void on_play(lv_event_t *) { start_game(); }
-static void on_level(lv_event_t *e) {
-    dlg_level = (int)(intptr_t)lv_event_get_user_data(e);
-    for (int i = 0; i < LEVEL_COUNT; i++) {
-        lv_obj_set_style_border_color(lvl_card[i], C(i == dlg_level ? 0xFFB300 : 0x4A4780), 0);
-        lv_obj_set_style_border_width(lvl_card[i], i == dlg_level ? 6 : 2, 0);
-    }
-}
-static void on_color(lv_event_t *e) {
-    dlg_white = (intptr_t)lv_event_get_user_data(e) == 0;
-    for (int i = 0; i < 2; i++) {
-        bool on = (i == 0) == dlg_white;
-        lv_obj_set_style_bg_color(col_btn[i], C(on ? 0xFFB300 : 0x4A4780), 0);
-        lv_obj_set_style_bg_grad_color(col_btn[i], C(on ? 0xE08F00 : 0x35336B), 0);
-    }
-}
+static void on_level(lv_event_t *e) { dlg_level = (int)(intptr_t)lv_event_get_user_data(e); paint_dialog(); }
+static void on_mode(lv_event_t *e) { dlg_two = (intptr_t)lv_event_get_user_data(e) == 1; paint_dialog(); }
+static void on_name_btn(lv_event_t *e) { open_name_editor((int)(intptr_t)lv_event_get_user_data(e)); }
+static void on_color(lv_event_t *e) { dlg_white = (intptr_t)lv_event_get_user_data(e) == 0; paint_dialog(); }
 static void on_promo(lv_event_t *e) { promo_choose("qrbn"[(intptr_t)lv_event_get_user_data(e)]); }
 
 static void on_slots_open(lv_event_t *);
@@ -577,7 +657,7 @@ static void build_panel() {
     lv_obj_set_width(speech_lbl, 202);
     lv_label_set_long_mode(speech_lbl, LV_LABEL_LONG_WRAP);
 
-    lv_obj_t *pill = mk(scr, PX, 206, PW, 62, 0x1B1940, 31);
+    lv_obj_t *pill = status_pill = mk(scr, PX, 206, PW, 62, 0x1B1940, 31);
     spinner = lv_spinner_create(pill);
     lv_spinner_set_anim_params(spinner, 1000, 200);
     lv_obj_set_size(spinner, 40, 40);
@@ -614,41 +694,263 @@ static void toggle_style(lv_obj_t *b, bool on) {
     lv_obj_set_style_bg_grad_color(b, C(on ? 0xE08F00 : 0x35336B), 0);
 }
 
+static void group_box(lv_obj_t **out, lv_obj_t *parent) {
+    *out = mk(parent, 0, 0, 976, 584, 0x000000, 0, 0);
+    lv_obj_remove_flag(*out, LV_OBJ_FLAG_CLICKABLE);
+}
+
 static void build_new_dialog() {
     dlg_new = mk(lv_layer_top(), 0, 0, 1024, 600, 0x0A0820, 0, 215);
     lv_obj_add_flag(dlg_new, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_t *p = mk(dlg_new, 24, 8, 976, 584, 0x2D2A5A, 36);
     lv_obj_set_style_border_width(p, 3, 0);
     lv_obj_set_style_border_color(p, C(0x4A4780), 0);
-    lv_obj_t *t = label(p, "¿Contra quién quieres jugar?", &lv_font_montserrat_42, 0xFFFFFF, 0, 12);
-    lv_obj_set_width(t, 976);
-    lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, 0);
+    mode_btn[0] = button(p, "Contra la máquina", 0xFFB300, 38, 12, 440, 60, on_mode, (void *)0);
+    mode_btn[1] = button(p, "Dos jugadores", 0x4A4780, 498, 12, 440, 60, on_mode, (void *)1);
+
+    // — Un jugador: mascota, color, nombre y ayudas —
+    group_box(&grp_one, p);
     for (int i = 0; i < LEVEL_COUNT; i++) {
-        int cx = 38 + (i % 3) * 308, cy = 72 + (i / 3) * 160;
-        lv_obj_t *c = mk(p, cx, cy, 292, 148, 0x221F47, 26);
+        int cx = 38 + (i % 3) * 308, cy = 84 + (i / 3) * 158;
+        lv_obj_t *c = mk(grp_one, cx, cy, 292, 146, 0x221F47, 26);
         lv_obj_set_style_border_width(c, 2, 0);
         lv_obj_set_style_border_color(c, C(0x4A4780), 0);
         lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(c, on_level, LV_EVENT_CLICKED, (void *)(intptr_t)i);
         Avatar a = avatar_create(c, i, 92);
-        lv_obj_set_pos(a.root, 14, 28);
+        lv_obj_set_pos(a.root, 14, 26);
         lv_obj_remove_flag(a.root, LV_OBJ_FLAG_CLICKABLE);
         const Level &lv = level_info(i);
-        label(c, lv.name, &lv_font_montserrat_32, 0xFFFFFF, 124, 16);
+        label(c, lv.name, &lv_font_montserrat_32, 0xFFFFFF, 124, 14);
         for (int k = 0; k < 5; k++)  // puntos de dificultad
-            mk(c, 126 + k * 26, 66, 18, 18, k <= i * 4 / 5 ? 0xFFB300 : 0x4A4780, LV_RADIUS_CIRCLE);
-        lv_obj_t *tg = label(c, lv.tagline, &lv_font_montserrat_14, 0xB8B4DD, 124, 96);
+            mk(c, 126 + k * 26, 64, 18, 18, k <= i * 4 / 5 ? 0xFFB300 : 0x4A4780, LV_RADIUS_CIRCLE);
+        lv_obj_t *tg = label(c, lv.tagline, &lv_font_montserrat_14, 0xB8B4DD, 124, 94);
         lv_obj_set_width(tg, 160);
         lvl_card[i] = c;
     }
-    label(p, "Juego con:", &lv_font_montserrat_28, 0xB8B4DD, 38, 400);
-    col_btn[0] = button(p, "Blancas", 0xFFB300, 224, 388, 180, 58, on_color, (void *)0);
-    col_btn[1] = button(p, "Negras", 0x4A4780, 416, 388, 180, 58, on_color, (void *)1);
-    coach_btn = button(p, "", 0xFFB300, 38, 466, 296, 64, [](lv_event_t *) { dlg_coach = !dlg_coach; refresh_dialog(); });
-    adapt_btn = button(p, "", 0xFFB300, 346, 466, 316, 64, [](lv_event_t *) { dlg_adapt = !dlg_adapt; refresh_dialog(); });
-    button(p, "¡A jugar!", 0x2FB67C, 700, 466, 238, 64, on_play);
-    label(p, "Avisos: te avisa si dejas una pieza en peligro.  Adaptable: se ajusta a tu juego.", &lv_font_montserrat_14, 0xB8B4DD, 38, 544);
+    label(grp_one, "Juego con:", &lv_font_montserrat_28, 0xB8B4DD, 38, 414);
+    col_btn[0] = button(grp_one, "Blancas", 0xFFB300, 224, 400, 180, 58, on_color, (void *)0);
+    col_btn[1] = button(grp_one, "Negras", 0x4A4780, 416, 400, 180, 58, on_color, (void *)1);
+    name_btn_1p = button(grp_one, "", 0x3F8CE6, 616, 400, 322, 58, on_name_btn, (void *)0);
+    coach_btn = button(grp_one, "", 0xFFB300, 38, 470, 296, 64, [](lv_event_t *) { dlg_coach = !dlg_coach; paint_dialog(); });
+    adapt_btn = button(grp_one, "", 0xFFB300, 346, 470, 316, 64, [](lv_event_t *) { dlg_adapt = !dlg_adapt; paint_dialog(); });
+    label(grp_one, "Avisos: te avisa si dejas una pieza en peligro.  Adaptable: se ajusta a tu juego.", &lv_font_montserrat_14, 0xB8B4DD, 38, 548);
+
+    // — Dos jugadores: un nombre para cada bando —
+    group_box(&grp_two, p);
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *c = mk(grp_two, 38, 96 + i * 160, 900, 148, 0x221F47, 26);
+        lv_obj_set_style_border_width(c, 2, 0);
+        lv_obj_set_style_border_color(c, C(0x4A4780), 0);
+        lv_obj_t *king = lv_image_create(c);
+        lv_image_set_src(king, &piece_sprites[i == 0 ? 5 : 11]);
+        lv_image_set_pivot(king, 0, 0);
+        lv_image_set_scale(king, 360);
+        lv_obj_set_pos(king, 30, 26);
+        lv_obj_remove_flag(king, LV_OBJ_FLAG_CLICKABLE);
+        label(c, i == 0 ? "Juegan las blancas" : "Juegan las negras", &lv_font_montserrat_28, 0xB8B4DD, 150, 14);
+        name_btn_2p[i] = button(c, "", 0x3F8CE6, 150, 60, 724, 72, on_name_btn, (void *)(intptr_t)i, &lv_font_montserrat_42);
+    }
+    label(grp_two, "El aparato en la mesa, cada uno a un lado.", &lv_font_montserrat_28, 0xB8B4DD, 38, 420);
+    lv_obj_add_flag(grp_two, LV_OBJ_FLAG_HIDDEN);
+
+    button(p, "¡A jugar!", 0x2FB67C, 700, 470, 238, 64, on_play);
     lv_obj_add_flag(dlg_new, LV_OBJ_FLAG_HIDDEN);
+}
+
+// ── Editor de nombres: teclado en pantalla con ñ y vocales con tilde ──────
+static const char *const KM_LOWER[] = {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "\n",
+                                       "a", "s", "d", "f", "g", "h", "j", "k", "l", "ñ", "\n",
+                                       "Mayús", "z", "x", "c", "v", "b", "n", "m", LV_SYMBOL_BACKSPACE, "\n",
+                                       "Acentos", "Espacio", "Aceptar", ""};
+static const char *const KM_UPPER[] = {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "\n",
+                                       "A", "S", "D", "F", "G", "H", "J", "K", "L", "Ñ", "\n",
+                                       "Mayús", "Z", "X", "C", "V", "B", "N", "M", LV_SYMBOL_BACKSPACE, "\n",
+                                       "Acentos", "Espacio", "Aceptar", ""};
+static const char *const KM_ACCENT[] = {"á", "é", "í", "ó", "ú", "ü", "\n",
+                                        "Á", "É", "Í", "Ó", "Ú", "Ü", "\n",
+                                        "Letras", LV_SYMBOL_BACKSPACE, "\n",
+                                        "Espacio", "Aceptar", ""};
+// Anchos relativos de cada tecla (el máximo de LVGL es 15); se convierten a lv_buttonmatrix_ctrl_t al construir.
+static const uint8_t KW_MAIN[] = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2,  2, 2, 2, 2, 2, 2, 2, 2, 2, 2,  3, 2, 2, 2, 2, 2, 2, 2, 3,  4, 10, 6};
+static const uint8_t KW_ACCENT[] = {3, 3, 3, 3, 3, 3,  3, 3, 3, 3, 3, 3,  10, 6,  10, 6};
+static lv_buttonmatrix_ctrl_t kc_main[sizeof KW_MAIN], kc_accent[sizeof KW_ACCENT];
+
+static void kb_set_letters() { lv_keyboard_set_mode(name_kb, kb_upper ? LV_KEYBOARD_MODE_USER_2 : LV_KEYBOARD_MODE_USER_1); }
+
+static void name_accept() {
+    char tmp[NAME_LEN];
+    name_sanitize(tmp, lv_textarea_get_text(name_ta));
+    memcpy(name_target == 0 ? dlg_n1 : dlg_n2, tmp, NAME_LEN);
+    lv_obj_add_flag(dlg_name, LV_OBJ_FLAG_HIDDEN);
+    paint_dialog();
+}
+
+static void kb_press(const char *tx) {
+    if (!tx) return;
+    if (!strcmp(tx, "Mayús")) { kb_upper = !kb_upper; kb_set_letters(); return; }
+    if (!strcmp(tx, "Acentos")) { lv_keyboard_set_mode(name_kb, LV_KEYBOARD_MODE_USER_3); return; }
+    if (!strcmp(tx, "Letras")) { kb_set_letters(); return; }
+    if (!strcmp(tx, "Aceptar")) { name_accept(); return; }
+    if (!strcmp(tx, LV_SYMBOL_BACKSPACE)) {
+        lv_textarea_delete_char(name_ta);
+        if (!lv_textarea_get_text(name_ta)[0]) kb_upper = true;   // vacío: vuelve la mayúscula inicial
+        kb_set_letters();
+        return;
+    }
+    if (!strcmp(tx, "Espacio")) tx = " ";
+    lv_textarea_add_text(name_ta, tx);
+    kb_upper = false;                                            // mayúscula solo en la primera letra
+    kb_set_letters();
+}
+
+static void kb_event(lv_event_t *) {
+    uint32_t id = lv_buttonmatrix_get_selected_button(name_kb);
+    if (id == LV_BUTTONMATRIX_BUTTON_NONE) return;
+    kb_press(lv_buttonmatrix_get_button_text(name_kb, id));
+}
+
+static void open_name_editor(int target) {
+    name_target = target;
+    const char *cur = target == 0 ? dlg_n1 : dlg_n2;
+    lv_label_set_text(name_title, !dlg_two ? "¿Cómo te llamas?" : (target == 0 ? "Jugador de blancas" : "Jugador de negras"));
+    lv_textarea_set_text(name_ta, cur);
+    kb_upper = cur[0] == 0;
+    kb_set_letters();
+    lv_obj_remove_flag(dlg_name, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(dlg_name);
+}
+
+static void build_name_dialog() {
+    dlg_name = mk(lv_layer_top(), 0, 0, 1024, 600, 0x0A0820, 0, 245);
+    lv_obj_add_flag(dlg_name, LV_OBJ_FLAG_CLICKABLE);
+    name_title = label(dlg_name, "", &lv_font_montserrat_42, 0xFFFFFF, 0, 14);
+    lv_obj_set_width(name_title, 1024);
+    lv_obj_set_style_text_align(name_title, LV_TEXT_ALIGN_CENTER, 0);
+    name_ta = lv_textarea_create(dlg_name);
+    lv_obj_set_size(name_ta, 640, 84);
+    lv_obj_set_pos(name_ta, 192, 84);
+    lv_textarea_set_one_line(name_ta, true);
+    lv_textarea_set_max_length(name_ta, NAME_MAX_CHARS);
+    lv_textarea_set_placeholder_text(name_ta, "Escribe aquí");
+    lv_obj_set_style_text_font(name_ta, &lv_font_montserrat_42, 0);
+    lv_obj_set_style_bg_color(name_ta, C(0xF4EFFF), 0);
+    lv_obj_set_style_text_color(name_ta, C(0x2D2A5A), 0);
+    lv_obj_set_style_radius(name_ta, 22, 0);
+    lv_obj_set_style_border_width(name_ta, 4, 0);
+    lv_obj_set_style_border_color(name_ta, C(0xFFB300), 0);
+    lv_obj_set_style_pad_left(name_ta, 22, 0);
+    label(dlg_name, "Un nombre corto o un apodo. Solo se guarda aquí.", &lv_font_montserrat_28, 0xB8B4DD, 192, 184);
+    button(dlg_name, "Cancelar", 0x4A4780, 30, 20, 170, 56, [](lv_event_t *) { lv_obj_add_flag(dlg_name, LV_OBJ_FLAG_HIDDEN); }, nullptr, &lv_font_montserrat_28);
+    name_kb = lv_keyboard_create(dlg_name);
+    lv_obj_set_size(name_kb, 1024, 340);
+    lv_obj_align(name_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    for (size_t i = 0; i < sizeof KW_MAIN; i++) kc_main[i] = (lv_buttonmatrix_ctrl_t)KW_MAIN[i];
+    for (size_t i = 0; i < sizeof KW_ACCENT; i++) kc_accent[i] = (lv_buttonmatrix_ctrl_t)KW_ACCENT[i];
+    lv_keyboard_set_map(name_kb, LV_KEYBOARD_MODE_USER_1, KM_LOWER, kc_main);
+    lv_keyboard_set_map(name_kb, LV_KEYBOARD_MODE_USER_2, KM_UPPER, kc_main);
+    lv_keyboard_set_map(name_kb, LV_KEYBOARD_MODE_USER_3, KM_ACCENT, kc_accent);
+    lv_obj_set_style_text_font(name_kb, &lv_font_montserrat_32, LV_PART_ITEMS);
+    lv_obj_set_style_bg_color(name_kb, C(0x15122E), 0);
+    lv_obj_set_style_bg_color(name_kb, C(0x3A3680), LV_PART_ITEMS);
+    lv_obj_set_style_text_color(name_kb, C(0xFFFFFF), LV_PART_ITEMS);
+    lv_obj_set_style_radius(name_kb, 16, LV_PART_ITEMS);
+    lv_obj_set_style_bg_color(name_kb, C(0xFFB300), LV_PART_ITEMS | LV_STATE_PRESSED);
+    lv_obj_add_event_cb(name_kb, kb_event, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_add_flag(dlg_name, LV_OBJ_FLAG_HIDDEN);
+}
+
+// ── Dos jugadores: un panel por jugador (el de arriba, girado 180°) ──────
+static void resign_labels() {
+    for (int i = 0; i < 2; i++) set_btn_text(side[i].resign, resign_armed == i ? "¿Seguro?" : "Rendirse");
+}
+static void disarm_resign() {
+    resign_armed = -1;
+    if (resign_timer) { lv_timer_delete(resign_timer); resign_timer = nullptr; }
+    resign_labels();
+}
+static void resign_timeout(lv_timer_t *) { resign_timer = nullptr; resign_armed = -1; resign_labels(); }
+static void resign_action(int i) {
+    if (!snap.twoPlayer || snap.over || snap.plies == 0) return;
+    if (resign_armed != i) {  // primer toque: pedir confirmación
+        disarm_resign();
+        resign_armed = i;
+        resign_timer = lv_timer_create(resign_timeout, 3000, nullptr);
+        lv_timer_set_repeat_count(resign_timer, 1);
+        resign_labels();
+        return;
+    }
+    disarm_resign();
+    host->post_resign(i == 0);
+}
+static void on_resign(lv_event_t *e) { resign_action((int)(intptr_t)lv_event_get_user_data(e)); }
+
+static void build_two_panels() {
+    for (int i = 0; i < 2; i++) {
+        SidePanel &s = side[i];
+        s.root = mk(scr, PX, i == 0 ? 344 : 6, PW, 250, 0x221F47, 30);
+        lv_obj_set_style_border_width(s.root, 3, 0);
+        lv_obj_set_style_border_color(s.root, C(0x4A4780), 0);
+        s.dot = mk(s.root, 18, 16, 38, 38, i == 0 ? 0xF5F5F5 : 0x1B1B1B, LV_RADIUS_CIRCLE);
+        lv_obj_set_style_border_width(s.dot, 3, 0);
+        lv_obj_set_style_border_color(s.dot, C(0x9A97C8), 0);
+        s.name = label(s.root, "", &lv_font_montserrat_42, 0xFFFFFF, 70, 8);
+        lv_obj_set_width(s.name, 300);
+        lv_label_set_long_mode(s.name, LV_LABEL_LONG_CLIP);
+        s.status = label(s.root, "", &lv_font_montserrat_28, 0xFFD23F, 18, 68);
+        lv_obj_set_width(s.status, 356);
+        lv_label_set_long_mode(s.status, LV_LABEL_LONG_CLIP);
+        s.tray = mk(s.root, 12, 108, 368, 44, 0x000000, 0, 0);
+        s.resign = button(s.root, "Rendirse", 0xD9534F, 18, 160, 356, 74, on_resign, (void *)(intptr_t)i);
+        if (i == 1) {  // quien juega con negras está al otro lado de la mesa
+            lv_obj_set_style_transform_pivot_x(s.root, PW / 2, 0);
+            lv_obj_set_style_transform_pivot_y(s.root, 125, 0);
+            lv_obj_set_style_transform_rotation(s.root, 1800, 0);
+        }
+    }
+    mid_strip = mk(scr, PX, 262, PW, 76, 0x000000, 0, 0);
+    mid_undo = button(mid_strip, "Deshacer", 0x3F8CE6, 0, 2, 142, 72, [](lv_event_t *e) { on_undo(e); }, nullptr, &lv_font_montserrat_28);
+    button(mid_strip, "Partidas", 0x8E6CD8, 149, 2, 132, 72, [](lv_event_t *e) { on_slots_open(e); }, nullptr, &lv_font_montserrat_28);
+    button(mid_strip, "Nueva", 0xF08A24, 288, 2, 104, 72, [](lv_event_t *e) { on_new(e); }, nullptr, &lv_font_montserrat_28);
+}
+
+static void rebuild_tray_two() {
+    for (int i = 0; i < 2; i++) {
+        lv_obj_clean(side[i].tray);
+        tray_row(side[i].tray, 0, 4, i == 0 ? snap.missingBlack : snap.missingWhite, i == 1);  // cada uno muestra lo que ha capturado
+    }
+}
+
+static void update_two_player() {
+    bool wtm = snap.whiteToMove;
+    for (int i = 0; i < 2; i++) {
+        bool mine = !snap.over && (i == 0) == wtm;
+        lv_label_set_text(side[i].name, pname(i));
+        const char *st;
+        if (snap.over) {
+            if (snap.resigned) st = snap.resigned == (i == 0 ? 1 : 2) ? "Te has rendido" : "¡Has ganado!";
+            else if (snap.status == ce::ST_MATE) st = (i == 0) == wtm ? "Jaque mate" : "¡Has ganado!";
+            else st = "¡Tablas!";
+        } else if (mine) st = snap.status == ce::ST_CHECK ? "¡Estás en jaque!" : "¡Tu turno!";
+        else st = "Espera";
+        lv_label_set_text(side[i].status, st);
+        lv_obj_set_style_text_color(side[i].status, C(mine ? 0xFFD23F : 0xB8B4DD), 0);
+        lv_obj_set_style_bg_color(side[i].root, C(mine ? 0x3A3680 : 0x221F47), 0);
+        lv_obj_set_style_border_color(side[i].root, C(mine ? 0xFFB300 : 0x4A4780), 0);
+        lv_obj_set_style_border_width(side[i].root, mine ? 6 : 3, 0);
+    }
+    disarm_resign();
+}
+
+static void apply_mode() {
+    lv_obj_t *one[] = {card, status_pill, tray_cont, btn_undo, btn_hint, btn_new, btn_slots};
+    for (lv_obj_t *o : one) { if (s_two) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN); }
+    if (s_two) lv_obj_add_flag(warn_card, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < 2; i++) { if (s_two) lv_obj_remove_flag(side[i].root, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(side[i].root, LV_OBJ_FLAG_HIDDEN); }
+    if (s_two) lv_obj_remove_flag(mid_strip, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(mid_strip, LV_OBJ_FLAG_HIDDEN);
+    // Carteles de fin: uno en el centro, o dos (uno girado) en la mitad de cada jugador
+    lv_obj_set_pos(banner, BX + 40, s_two ? BY + 300 : BY + 205);
+    lv_obj_set_pos(banner2, BX + 40, BY + 110);
 }
 
 // ── Partidas guardadas ────────────────────────────────────────────────────
@@ -664,11 +966,26 @@ static void refresh_slots() {
         const SlotInfo &s = snap.slots[i];
         lv_obj_clean(slot_av[i]);
         if (s.used) {
-            Avatar a = avatar_create(slot_av[i], s.level, 84);
-            lv_obj_remove_flag(a.root, LV_OBJ_FLAG_CLICKABLE);
-            char b[48];
-            lv_label_set_text(slot_name[i], level_info(s.level).name);
-            snprintf(b, sizeof b, "%d jugadas, %s", s.plies, s.humanWhite ? "Blancas" : "Negras");
+            char nm[64], b[48];
+            if (s.twoPlayer) {  // dos reyes en vez de mascota, y los dos nombres
+                for (int k = 0; k < 2; k++) {
+                    lv_obj_t *king = lv_image_create(slot_av[i]);
+                    lv_image_set_src(king, &piece_sprites[k == 0 ? 5 : 11]);
+                    lv_image_set_pivot(king, 0, 0);
+                    lv_image_set_scale(king, 200);
+                    lv_obj_set_pos(king, k * 38, 16 + k * 12);
+                    lv_obj_remove_flag(king, LV_OBJ_FLAG_CLICKABLE);
+                }
+                snprintf(nm, sizeof nm, "%s vs %s", s.name1[0] ? s.name1 : "Blancas", s.name2[0] ? s.name2 : "Negras");
+                snprintf(b, sizeof b, "%d jugadas", s.plies);
+            } else {
+                Avatar a = avatar_create(slot_av[i], s.level, 84);
+                lv_obj_remove_flag(a.root, LV_OBJ_FLAG_CLICKABLE);
+                if (s.name1[0]) snprintf(nm, sizeof nm, "%s vs %s", s.name1, level_info(s.level).name);
+                else snprintf(nm, sizeof nm, "%s", level_info(s.level).name);
+                snprintf(b, sizeof b, "%d jugadas, %s", s.plies, s.humanWhite ? "Blancas" : "Negras");
+            }
+            lv_label_set_text(slot_name[i], nm);
             lv_label_set_text(slot_detail[i], b);
         } else {
             char b[24];
@@ -752,7 +1069,11 @@ static void build_slots_dialog() {
         lv_obj_set_style_border_color(c, C(0x4A4780), 0);
         slot_av[i] = mk(c, 14, 18, 88, 88, 0x000000, 0, 0);
         slot_name[i] = label(c, "", &lv_font_montserrat_32, 0xFFFFFF, 116, 20);
+        lv_obj_set_width(slot_name[i], 284);
+        lv_label_set_long_mode(slot_name[i], LV_LABEL_LONG_CLIP);
         slot_detail[i] = label(c, "", &lv_font_montserrat_28, 0xB8B4DD, 116, 70);
+        lv_obj_set_width(slot_detail[i], 284);
+        lv_label_set_long_mode(slot_detail[i], LV_LABEL_LONG_CLIP);
         static const char *const TXT[3] = {"Guardar", "Cargar", "Borrar"};
         static const int X[3] = {404, 580, 744}, W[3] = {160, 150, 140};
         for (int k = 0; k < 3; k++)
@@ -789,20 +1110,32 @@ static void build_promo_dialog() {
     lv_obj_add_flag(dlg_promo, LV_OBJ_FLAG_HIDDEN);
 }
 
-static void build_banner() {
-    banner = mk(scr, BX + 40, BY + 190, 8 * SQ - 80, 180, 0x14123A, 30, 235);
-    lv_obj_set_style_border_width(banner, 3, 0);
-    lv_obj_set_style_border_color(banner, C(0xFFB300), 0);
-    lv_obj_add_flag(banner, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(banner, banner_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *t = label(banner, "", &lv_font_montserrat_48, 0xFFD23F, 0, 28);
-    lv_obj_set_width(t, 8 * SQ - 80);
+static lv_obj_t *make_banner(bool rotated) {
+    const int W = 8 * SQ - 80;
+    lv_obj_t *b = mk(scr, BX + 40, BY + 205, W, 150, 0x14123A, 30, 235);
+    lv_obj_set_style_border_width(b, 3, 0);
+    lv_obj_set_style_border_color(b, C(0xFFB300), 0);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(b, banner_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *t = label(b, "", &lv_font_montserrat_48, 0xFFD23F, 0, 14);
+    lv_obj_set_width(t, W);
     lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_t *s = label(banner, "", &lv_font_montserrat_28, 0xFFFFFF, 12, 108);
-    lv_obj_set_width(s, 8 * SQ - 104);
+    lv_obj_t *s = label(b, "", &lv_font_montserrat_28, 0xFFFFFF, 12, 88);
+    lv_obj_set_width(s, W - 24);
     lv_label_set_long_mode(s, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(s, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_add_flag(banner, LV_OBJ_FLAG_HIDDEN);
+    if (rotated) {  // para quien juega desde el lado de arriba
+        lv_obj_set_style_transform_pivot_x(b, W / 2, 0);
+        lv_obj_set_style_transform_pivot_y(b, 75, 0);
+        lv_obj_set_style_transform_rotation(b, 1800, 0);
+    }
+    lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
+    return b;
+}
+
+static void build_banner() {
+    banner = make_banner(false);
+    banner2 = make_banner(true);
 }
 
 // ── Actualización desde el snapshot ───────────────────────────────────────
@@ -833,28 +1166,50 @@ static void handle_op() {
 
 static void apply_snapshot() {
     bool first = !have_snap;
-    bool structural_prev = !first;
+    if (first) {  // recordar la última elección del diálogo (modo, nivel, color, avisos y nombres)
+        dlg_level = snap.prefs.level;
+        dlg_white = snap.prefs.humanWhite;
+        dlg_coach = snap.prefs.coach;
+        dlg_adapt = snap.prefs.adaptive;
+        dlg_two = snap.prefs.twoPlayer;
+        memcpy(dlg_n1, snap.prefs.name1, NAME_LEN);
+        memcpy(dlg_n2, snap.prefs.name2, NAME_LEN);
+        paint_dialog();
+    }
+    bool mode_changed = first || snap.twoPlayer != s_two;
+    if (mode_changed) {  // las piezas negras cambian de sprite (giradas en dos jugadores): se recrean
+        s_two = snap.twoPlayer;
+        apply_mode();
+        for (int i = 0; i < 64; i++) drop_piece(i, false);
+    }
+    bool structural_prev = !first && !mode_changed;
     bool animate = structural_prev && snap.plies == prev.plies + 1 && snap.lastOp != 2;
     bool cap = structural_prev && is_capture(prev, snap);
     bool mover_is_human = snap.whiteToMove != snap.humanWhite;  // quien acaba de mover es el contrario del que tiene turno
-    bool new_flip = !snap.humanWhite;
-    build_avatar(snap.level);
-    if (new_flip != flipped || first) { flipped = new_flip; relayout(); }
-    bool hint_only = structural_prev && snap.plies == prev.plies && memcmp(snap.board, prev.board, 64) == 0 &&
-                     snap.awaiting == prev.awaiting && snap.level == prev.level && snap.humanWhite == prev.humanWhite &&
-                     snap.effLevel == prev.effLevel && snap.status == prev.status && snap.adaptEvent == 0 && snap.lastOp != 2;
-    if (!hint_only) {
+    bool new_flip = !snap.humanWhite && !snap.twoPlayer;
+    if (!s_two) build_avatar(snap.level);
+    if (new_flip != flipped || mode_changed) { flipped = new_flip; relayout(); }
+    bool same_pos = structural_prev && snap.plies == prev.plies && memcmp(snap.board, prev.board, 64) == 0 &&
+                    snap.awaiting == prev.awaiting && snap.level == prev.level && snap.humanWhite == prev.humanWhite &&
+                    snap.effLevel == prev.effLevel && snap.status == prev.status && snap.adaptEvent == 0 && snap.lastOp != 2 &&
+                    snap.resigned == prev.resigned && !strcmp(snap.name1, prev.name1) && !strcmp(snap.name2, prev.name2);
+    if (!same_pos) {
         if (sel >= 0) { unlift(sel); sel = -1; memset(target, 0, sizeof target); }
         sync_pieces(animate);
-        rebuild_tray();
-        update_dots();
-        update_status(cap && !mover_is_human, cap && mover_is_human);
+        if (s_two) {
+            rebuild_tray_two();
+            update_two_player();
+        } else {
+            rebuild_tray();
+            update_dots();
+            update_status(cap && !mover_is_human, cap && mover_is_human);
+        }
     }
     paint_squares();
     update_buttons();
     handle_op();
     if (!lv_obj_has_flag(dlg_slots, LV_OBJ_FLAG_HIDDEN)) refresh_slots();
-    if (game_over()) end_effects(); else if (!animate && !hint_only) banner_shown = false;
+    if (game_over()) end_effects(); else if (!animate && !same_pos) banner_shown = false;
     have_snap = true;
     prev = snap;
     prev.hasHint = false;
@@ -879,15 +1234,18 @@ void ui_game_create(lv_obj_t *screen, GameHost *h) {
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     build_board();
     build_panel();
+    build_two_panels();
     build_banner();
     build_new_dialog();
+    build_name_dialog();
     build_slots_dialog();
     build_promo_dialog();
-    // Partida inicial hasta que el jugador elija en el diálogo: Tortuga, blancas
-    snap = Snapshot();
+    // Hasta el primer snapshot: Tortuga, blancas, un jugador
     memset(&snap, 0, sizeof snap);
     snap.level = dlg_level;
     snap.humanWhite = true;
+    s_two = false;
+    apply_mode();
     build_avatar(dlg_level);
     open_new_dialog();
     lv_timer_create(poll_cb, 33, nullptr);
@@ -897,7 +1255,7 @@ void ui_game_create(lv_obj_t *screen, GameHost *h) {
 void ui_game_debug_tap_square(int s) {
     if (!interactive()) return;
     int8_t pc = snap.board[s];
-    bool own = pc != 0 && (pc > 0) == snap.humanWhite;
+    bool own = pc != 0 && (pc > 0) == (s_two ? snap.whiteToMove : snap.humanWhite);   // en dos jugadores, las del que tiene el turno
     if (sel >= 0 && target[s]) {
         int from = sel;
         bool promo = false;
@@ -930,5 +1288,10 @@ void ui_game_debug_tap(const char *w) {
     else if (!strncmp(w, "save:", 5)) slot_action(K_SAVE, atoi(w + 5));
     else if (!strncmp(w, "load:", 5)) slot_action(K_LOAD, atoi(w + 5));
     else if (!strncmp(w, "del:", 4)) slot_action(K_DEL, atoi(w + 4));
+    else if (!strncmp(w, "mode:", 5)) { dlg_two = w[5] == '2'; paint_dialog(); }
+    else if (!strncmp(w, "name:", 5)) { name_sanitize(w[5] == '0' ? dlg_n1 : dlg_n2, w + 7); paint_dialog(); }
+    else if (!strncmp(w, "edit:", 5)) open_name_editor(atoi(w + 5));
+    else if (!strncmp(w, "key:", 4)) kb_press(w + 4);
+    else if (!strncmp(w, "resign:", 7)) resign_action(atoi(w + 7));
     else if (!strcmp(w, "banner")) banner_cb(nullptr);
 }

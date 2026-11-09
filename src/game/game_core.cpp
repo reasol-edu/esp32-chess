@@ -91,6 +91,18 @@ void GameCore::newGame(const NewGameOpts &o) {
     refresh();
 }
 
+void GameCore::newGameFromPrefs() {
+    NewGameOpts o;
+    o.humanWhite = prefs_.humanWhite;
+    o.level = prefs_.level;
+    o.coach = prefs_.coach;
+    o.adaptive = prefs_.adaptive;
+    o.twoPlayer = prefs_.twoPlayer;
+    memcpy(o.name1, prefs_.name1, NAME_LEN);
+    memcpy(o.name2, prefs_.name2, NAME_LEN);
+    newGame(o);
+}
+
 void GameCore::loadPrefs() {
     uint8_t buf[4 + 2 * NAME_LEN + 2];
     GamePrefs p;

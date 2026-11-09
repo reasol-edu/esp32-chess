@@ -15,3 +15,6 @@ extern const lv_image_dsc_t piece_sprites[12];
 
 // Pieza con signo del motor (+blancas / −negras, 1=P … 6=K) → índice de sprite.
 inline int piece_index(int8_t p) { return p > 0 ? p - 1 : 6 + (-p - 1); }
+
+// Pieza girada 180° (para las negras en el modo cara a cara): la del PPA si existe, si no una copia por software.
+const lv_image_dsc_t *piece_rot180(int idx);

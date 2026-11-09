@@ -18,7 +18,7 @@ Usa **LVGL 9.6** con la unidad de dibujo **PPA** del ESP32-P4 y el motor de
 | 5 | Animaciones, mascotas, confeti, sprites con el PPA | Hecho; falta medir en la placa |
 | 6 | Dificultad: 6 niveles, deshacer, pista, aviso de pieza en peligro y modo adaptable | Hecho; sin probar en la placa |
 | 7 | Guardar y cargar partidas (3 huecos) | Hecho; sin probar en la placa |
-| 8 | Modo 2 jugadores cara a cara | Pendiente (opcional) |
+| 8 | Modo 2 jugadores cara a cara y nombres | Hecho; sin probar en la placa |
 
 ## Plan de juego
 
@@ -29,6 +29,13 @@ Usa **LVGL 9.6** con la unidad de dibujo **PPA** del ESP32-P4 y el motor de
 - **Modo adaptable** (desactivable): afloja o aprieta hasta ±2 niveles según el balance de material y arrastra el resultado a la
   siguiente partida. Los puntos bajo la mascota muestran el nivel efectivo (en cian si difiere del elegido).
   Ambos se eligen en el diálogo de nueva partida y empiezan activados.
+- **Dos jugadores cara a cara** (*Dos jugadores* en el diálogo de nueva partida): el aparato se deja en la mesa entre los dos.
+  Quien juega con negras se sienta al otro lado: su panel (nombre, turno, capturas y *Rendirse*), el cartel de fin y el diálogo de
+  coronación salen girados 180°, y sus piezas se dibujan giradas (con el PPA, SRM con rotación de 180°; si falla, por software).
+  Sin CPU, sin avisos y sin modo adaptable; *Deshacer* retira una jugada y *Rendirse* pide confirmación.
+- **Nombres** (opcionales, hasta 10 caracteres): se escriben con un teclado en pantalla con ñ y vocales con tilde. Se recuerdan
+  entre arranques junto con la última elección (modo, nivel, color, avisos, adaptable) y se guardan con cada partida. Solo
+  viven en la memoria del aparato; no se envían a ningún sitio. Sin nombre, se muestra "Blancas"/"Negras" (o "Tú" en una inicial).
 - **Guardar y cargar** (botón *Partidas*): 3 huecos en la memoria NVS del chip, con la mascota, las jugadas y el color. Sobrescribir,
   borrar o cargar sobre una partida en curso piden confirmación con un segundo toque. Se guardan los ajustes de la partida (nivel,
   avisos, adaptable) y se rejuega desde el inicio, así que *Deshacer* sigue funcionando; un hueco dañado (CRC) o con jugadas ilegales
@@ -58,7 +65,7 @@ src/game_service.*         Tarea del motor (núcleo 1) y cola de órdenes
 src/game/                  Lógica de partida (GameCore), niveles, aviso de peligro, modo adaptable y formato de guardado; sin LVGL ni FreeRTOS
 src/save_store_nvs.*       Almacén de partidas guardadas en NVS
 src/engine/                Motor de ajedrez adaptado como librería (namespace ce)
-src/ui/ui_game.cpp         Pantalla de juego: tablero, panel, diálogos, confeti
+src/ui/ui_game.cpp         Pantalla de juego: tablero, paneles (1 y 2 jugadores), diálogos, teclado de nombres, confeti
 src/ui/ui_avatar.cpp       Mascotas dibujadas con objetos LVGL
 src/ui/ppa_fx.cpp          Sprites levantados y miniaturas escalados con el PPA
 src/ui/pieces_data.c       Sprites cburnett 64x64 (generado por tools/gen_pieces.py)

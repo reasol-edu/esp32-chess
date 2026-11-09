@@ -7,3 +7,4 @@ void ppa_fx_init();                           // llamar tras lv_init(); mide y r
 bool ppa_fx_active();                         // true si se generaron con el PPA
 const lv_image_dsc_t *ppa_fx_lifted(int idx); // pieza "levantada" 80x80 (1,25x) o nullptr
 const lv_image_dsc_t *ppa_fx_mini(int idx);   // miniatura 32x32 (0,5x) o nullptr
+const lv_image_dsc_t *ppa_fx_rot180(int idx);  // pieza negra (6..11) girada 180° o nullptr; modo dos jugadores

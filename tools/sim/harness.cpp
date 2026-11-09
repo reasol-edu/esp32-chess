@@ -11,6 +11,7 @@ void ppa_fx_init() {}
 bool ppa_fx_active() { return false; }
 const lv_image_dsc_t *ppa_fx_lifted(int) { return nullptr; }
 const lv_image_dsc_t *ppa_fx_mini(int) { return nullptr; }
+const lv_image_dsc_t *ppa_fx_rot180(int) { return nullptr; }
 
 static uint32_t g_now = 0;
 static uint16_t *fb;
@@ -21,6 +22,12 @@ static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
     for (int y = a->y1; y <= a->y2; y++) memcpy(&fb[y * 1024 + a->x1], src + (y - a->y1) * w, w * 2);
     lv_display_flush_ready(d);
 }
+// Puntero táctil simulado: comprueba que LVGL acierta los toques sobre objetos girados 180°
+static int tx = -1, ty = -1;
+static void touch_read(lv_indev_t *, lv_indev_data_t *d) {
+    if (tx >= 0) { d->state = LV_INDEV_STATE_PRESSED; d->point.x = tx; d->point.y = ty; }
+    else d->state = LV_INDEV_STATE_RELEASED;
+}
 static void run(int ms) { for (int i = 0; i < ms / 16; i++) { g_now += 16; lv_timer_handler(); } }
 
 // Host síncrono: la respuesta de la CPU se calcula en el poll siguiente (da un fotograma de "pensando").
@@ -29,7 +36,8 @@ struct SimHost : GameHost {
     GameCore core;
     SimHost() { core.setStore(&sim_store); }
     bool dirty = false, cpu_pending = false;
-    void post_new(bool w, int l, bool coach, bool adaptive) override { core.newGame(w, l, coach, adaptive); dirty = true; cpu_pending = core.cpuMayMove(); }
+    void post_new(const NewGameOpts &o) override { core.newGame(o); dirty = true; cpu_pending = core.cpuMayMove(); }
+    void post_resign(bool w) override { core.resign(w); dirty = true; }
     void load(const char *fen, bool w, int l) { core.loadFen(fen, w, l); dirty = true; cpu_pending = core.cpuMayMove(); }
     void post_human_move(const ce::Move &m) override { if (core.humanMove(m)) { dirty = true; cpu_pending = core.cpuMayMove(); } }
     void post_undo() override { if (core.undo()) { dirty = true; cpu_pending = core.cpuMayMove(); } }
@@ -47,6 +55,7 @@ struct SimHost : GameHost {
 };
 static SimHost host;
 
+static void click(int x, int y) { tx = x; ty = y; run(120); tx = -1; ty = -1; run(120); }
 static int sq(const char *s) { return (8 - (s[1] - '0')) * 8 + (s[0] - 'a'); }
 static void tap(const char *s) { ui_game_debug_tap_square(sq(s)); run(100); }
 static void play(const char *a, const char *b) { tap(a); tap(b); run(1500); }
@@ -72,12 +81,22 @@ int main(int argc, char **argv) {
     static uint16_t *buf = (uint16_t *)malloc(1024 * 600 * 2);
     lv_display_set_buffers(d, buf, nullptr, 1024 * 600 * 2, LV_DISPLAY_RENDER_MODE_FULL);
     lv_display_set_flush_cb(d, flush_cb);
+    lv_indev_t *ind = lv_indev_create();
+    lv_indev_set_type(ind, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(ind, touch_read);
     lv_obj_t *scr = lv_obj_create(nullptr);
     lv_screen_load(scr);
     ui_game_create(scr, &host);
     run(300);
 
-    if (scene == "newgame") {
+    if (scene == "newgame_two") {
+        ui_game_debug_tap("mode:2"); ui_game_debug_tap("name:0:Ana"); ui_game_debug_tap("name:1:Luis");
+    } else if (scene == "names") {
+        ui_game_debug_tap("mode:2"); ui_game_debug_tap("edit:0");
+        ui_game_debug_tap("key:A"); ui_game_debug_tap("key:n"); ui_game_debug_tap("key:a");
+    } else if (scene == "names_accents") {
+        ui_game_debug_tap("mode:2"); ui_game_debug_tap("edit:1"); ui_game_debug_tap("key:Acentos");
+    } else if (scene == "newgame") {
         ui_game_debug_tap("lvl:3"); ui_game_debug_tap("adapt");
     } else if (scene == "newgame_black") {
         ui_game_debug_tap("lvl:5"); ui_game_debug_tap("black");
@@ -119,6 +138,27 @@ int main(int argc, char **argv) {
                 ui_game_debug_tap("save:1"); run(300);             // otra partida (negras, Búho) en el hueco 2
                 ui_game_debug_tap("load:0"); run(200); ui_game_debug_tap("load:0"); run(1800);   // cargar pide confirmación
             }
+        } else if (scene.rfind("two", 0) == 0) {
+            // (la partida de 1 jugador ya empezó arriba; aquí se abre una de 2 jugadores)
+            ui_game_debug_tap("new"); ui_game_debug_tap("mode:2");
+            ui_game_debug_tap("name:0:Ana"); ui_game_debug_tap("name:1:Luis");
+            ui_game_debug_tap("play"); run(500);
+            if (scene == "two") { play("e2", "e4"); play("e7", "e5"); play("g1", "f3"); }
+            else if (scene == "two_black") { play("e2", "e4"); play("e7", "e5"); play("g1", "f3"); tap("g8"); }
+            else if (scene == "two_white_sel") { play("e2", "e4"); play("e7", "e5"); tap("g1"); }
+            else if (scene == "two_slots") {
+                play("e2", "e4"); play("e7", "e5"); ui_game_debug_tap("slots"); run(200); ui_game_debug_tap("save:1"); run(400);
+            }
+            else if (scene == "two_touch") {
+                // Toques reales (indev): botón Rendirse girado del jugador de arriba y una pieza negra
+                play("e2", "e4");
+                click(808, 59);          // centro del botón Rendirse girado: debe pasar a "¿Seguro?"
+                click(475, 55);          // casilla g8 (caballo negro): debe seleccionarse
+            }
+            else if (scene == "two_win") { play("f2", "f3"); play("e7", "e5"); play("g2", "g4"); play("d8", "h4"); run(600); }
+            else if (scene == "two_resign") { play("e2", "e4"); ui_game_debug_tap("resign:1"); run(100); ui_game_debug_tap("resign:1"); run(600); }
+            else if (scene == "two_promo") { host.load("7k/8/8/8/8/8/p7/6K1 b - -", true, 1); run(300); tap("a2"); tap("a1"); }
+            else if (scene == "two_capture") { host.load("rnbqkbnr/ppp2ppp/8/3pp3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq -", true, 1); run(300); play("e4", "d5"); play("d8", "d5"); }
         } else if (scene == "win") {
             host.load("6k1/5ppp/8/8/8/8/8/R5K1 w - -", true, 1);
             run(300); play("a1", "a8"); run(400);

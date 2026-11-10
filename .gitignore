@@ -5,3 +5,6 @@ compile_commands.json
 tools/sim/obj/
 tools/sim/out/
 tools/sim/mock/
+docs/manual-site/
+docs/manual/_build.html
+docs/manual/*.pdf

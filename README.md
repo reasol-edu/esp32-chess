@@ -71,6 +71,11 @@ pio test -e native                            # 54 tests del motor y de la lógi
 tools/sim/shot.sh mid                         # captura de la interfaz sin placa
 ```
 
+Cada cambio en `main` compila el firmware en una GitHub Action ([`firmware.yml`](.github/workflows/firmware.yml)) tras pasar los tests;
+los binarios (`app`, imagen `completo` y piezas sueltas) salen como artefacto y, con una etiqueta `v*`, se adjuntan a la release.
+La imagen `completo` se graba en 0x0 con `esptool --chip esp32p4 write-flash 0x0 <fichero>` (con esptool 5.3 o posterior) y borra las
+partidas guardadas; el fichero `app` se graba en 0x10000 y las conserva.
+
 Los detalles de la placa (rev v3.2, panel V2, por qué `pio upload` falla), la estructura del código y el motor
 están en el [anexo técnico](docs/manual/08-montaje.md).
 
@@ -80,7 +85,9 @@ Probado en la placa JC1060P470 (ESP32-P4 rev v3.2, panel V2): arranca, el PPA fu
 responde. Los niveles se han ajustado con medidas reales. Pendiente: comparar rendimiento con y sin PPA, sonido y guardado automático.
 Ver el [registro de cambios](CHANGELOG.md).
 
-## Licencia
+## Licencia y créditos
 
-El motor es **GPL v3** (ver [`LICENSE-engine-GPLv3`](LICENSE-engine-GPLv3)), así que el firmware que lo incluye se distribuye también
-bajo GPL v3. Los sprites de las piezas son *cburnett* (ver `assets/pieces/`).
+El motor de ajedrez es obra de **Sergey Urusov**, en la versión de [hpsaturn/esp32-chess-engine](https://github.com/hpsaturn/esp32-chess-engine)
+(**GPL v3**, ver [`LICENSE-engine-GPLv3`](LICENSE-engine-GPLv3)), adaptado aquí como librería. Por eso el firmware completo se distribuye
+también bajo GPL v3. Las piezas son el set *cburnett* de Colin M. L. Burnett (GPLv2+). Lista completa de créditos y licencias de
+terceros en [`NOTICE.md`](NOTICE.md).

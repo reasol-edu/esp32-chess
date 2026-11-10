@@ -21,6 +21,8 @@ Primera versión probada en la placa Guition JC1060P470 (ESP32-P4 rev v3.2, pane
 - 54 tests nativos del motor y de la lógica de partida (`pio test -e native`).
 - Documentación para niños, familias y docentes (`docs/manual/`), publicada como web en GitHub Pages y como PDF.
 - `tools/flash.sh` para grabar la placa con esptool 5.3.
+- GitHub Action que pasa los tests nativos, compila el firmware y publica los binarios (`.github/workflows/firmware.yml`).
+- `NOTICE.md` con los créditos y licencias de terceros: motor (Sergey Urusov / hpsaturn, GPL v3), piezas cburnett y bibliotecas.
 
 ### Cambiado
 

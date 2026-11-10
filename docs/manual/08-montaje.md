@@ -76,6 +76,19 @@ Los 13 tests cubren perft (20/400/8902 desde el inicio y 48/2039 en Kiwipete), e
 coronación, mate, ahogado, repetición, deshacer y tiempos por profundidad.
 
 
-## Licencia
+## Licencia y créditos
 
-El programa incluye el motor de ajedrez de [hpsaturn/esp32-chess-engine](https://github.com/hpsaturn/esp32-chess-engine), con licencia **GPL v3**. Por eso el firmware completo se distribuye también bajo GPL v3. Las piezas son los sprites *cburnett* (ver `assets/pieces/`).
+El motor de ajedrez es obra de **Sergey Urusov**, en la versión de [hpsaturn/esp32-chess-engine](https://github.com/hpsaturn/esp32-chess-engine), con licencia **GPL v3**. Por eso el firmware completo se distribuye también bajo GPL v3. Las piezas son el set *cburnett* de Colin M. L. Burnett (GPLv2+). La lista completa de créditos y licencias de terceros está en [`NOTICE.md`](https://github.com/reasol-edu/esp32-chess/blob/main/NOTICE.md).
+
+## Firmware ya compilado
+
+Cada versión publicada incluye en [Releases](https://github.com/reasol-edu/esp32-chess/releases) el firmware compilado por una GitHub Action:
+
+- `esp32-chess-<versión>-app.bin`: solo el programa; se graba en `0x10000` y **conserva** las partidas guardadas.
+- `esp32-chess-<versión>-completo.bin`: imagen única (cargador, particiones y programa); se graba en `0x0` y **borra** las partidas guardadas.
+
+```bash
+esptool --chip esp32p4 write-flash 0x10000 esp32-chess-<versión>-app.bin
+```
+
+Con una placa ESP32-P4 rev v3.2 hace falta esptool 5.3 o posterior (ver «La placa: revisiones»).

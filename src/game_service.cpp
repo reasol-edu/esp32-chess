@@ -47,7 +47,11 @@ void GameService::thinkIfNeeded() {
     if (!core_.cpuMayMove()) return;  // sin aviso de peligro pendiente
     uint32_t t0 = millis();
     core_.cpuMove();
-    Serial.printf("[chess] CPU nivel %d: %lu ms\n", core_.snap().level, (unsigned long)(millis() - t0));
+    uint32_t dt = millis() - t0;
+    Serial.printf("[chess] CPU nivel %d: %lu ms\n", core_.snap().level, (unsigned long)dt);
+    // Niveles bajos contestan en milisegundos: una pausa mínima para que parezca que piensa.
+    const uint32_t MIN_THINK_MS = 800;
+    if (core_.snap().level <= 2 && dt < MIN_THINK_MS) vTaskDelay(pdMS_TO_TICKS(MIN_THINK_MS - dt));
     publish();
 }
 

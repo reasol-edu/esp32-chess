@@ -20,7 +20,7 @@ inline const Level &level_info(int idx) {
         {"Conejo",   "Rápido pero se despista", 2, 500, 10},
         {"Zorro",    "Listo y astuto",      3,   800,  3},
         {"Búho",     "Piensa mucho",        5,  3000,  0},
-        {"Dragón",   "¡El maestro!",       20,  8000,  0},
+        {"Dragón",   "¡El maestro!",       20,  5000,  0},
     };
     return L[idx < 0 ? 0 : (idx >= LEVEL_COUNT ? LEVEL_COUNT - 1 : idx)];
 }

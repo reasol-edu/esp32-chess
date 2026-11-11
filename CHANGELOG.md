@@ -3,7 +3,7 @@
 Todos los cambios relevantes del proyecto. El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y las versiones, [SemVer](https://semver.org/lang/es/).
 
-## [0.1.0] - 2026-11-10
+## [0.1.0] - 2026-11-11
 
 Primera versión probada en la placa Guition JC1060P470 (ESP32-P4 rev v3.2, panel V2).
 

@@ -26,6 +26,15 @@ Si el PPA falla, la UI escala por software y lo indica (`sprites_ppa=0`). Cada j
 
 ## La placa: revisiones
 
+| | Placa actual (lote 2026) | Placa original |
+|---|---|---|
+| Chip | ESP32-P4 rev v3.x | ESP32-P4 «ES pre rev.300» |
+| Panel | «V2» (etiqueta en la trasera) | Antiguo |
+| Entorno de PlatformIO | `jc1060p470` | `jc1060p470_v1` |
+| Estado | Probado | **Sin probar en hardware** (compila) |
+
+Para grabar la placa original: `pio run -e jc1060p470_v1` y `PIO_ENV=jc1060p470_v1 ESPTOOL=... tools/flash.sh`. Las releases incluyen su firmware con el sufijo `-placa-original`. Chip y panel son independientes: si tu combinación es otra (por ejemplo chip v3 con panel antiguo), añade `-DPANEL_JC1060P470_V1` al entorno que corresponda.
+
 - **Chip ESP32-P4 rev v3.x** (el de los lotes nuevos): hay que compilar con `board = esp32-p4_r3-evboard`. La variante
   `esp32-p4-evboard` ("ES pre rev.300") es para el silicio antiguo y en un v3 no arranca (pantalla negra, sin puerto USB).
 - **Subir el firmware:** `pio run -t upload` falla con el esptool 5.2 que trae PlatformIO (el stub se cuelga con

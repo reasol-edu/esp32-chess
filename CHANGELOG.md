@@ -24,6 +24,8 @@ Primera versión probada en la placa Guition JC1060P470 (ESP32-P4 rev v3.2, pane
 - GitHub Action que pasa los tests nativos, compila el firmware y publica los binarios (`.github/workflows/firmware.yml`).
 - `NOTICE.md` con los créditos y licencias de terceros: motor (Sergey Urusov / hpsaturn, GPL v3), piezas cburnett y bibliotecas.
 
+- Entorno `jc1060p470_v1` para la placa original (chip ES pre rev.300 y panel antiguo): compila y la Action publica su firmware con el sufijo `-placa-original`. Sin probar en hardware.
+
 ### Cambiado
 
 - Los niveles Pollito, Tortuga y Conejo esperan un mínimo de 0,8 s antes de mover, para que parezca que piensan (en la placa contestan en milisegundos).

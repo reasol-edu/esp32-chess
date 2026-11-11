@@ -41,6 +41,16 @@ jobs:
   build:
     needs: test
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Placa actual: chip ESP32-P4 rev v3.x y panel "V2" (lote 2026)
+          - env: jc1060p470
+            suffix: ""
+          # Placa original: chip ES pre rev.300 y panel antiguo (sin probar en hardware)
+          - env: jc1060p470_v1
+            suffix: "-placa-original"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -55,47 +65,44 @@ jobs:
             ~/.platformio/packages
             ~/.platformio/platforms
             .pio/libdeps
-          key: pio-${{ hashFiles('platformio.ini') }}
-          restore-keys: pio-
+          key: pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ matrix.env }}-
 
       - name: Instalar PlatformIO y esptool
         # esptool solo se usa para unir los binarios en una imagen única (merge-bin).
         run: pip install platformio "esptool>=5.2,<6"
 
-      - name: Compilar (ESP32-P4 rev v3, con PPA)
-        run: pio run -e jc1060p470
+      - name: Compilar (${{ matrix.env }})
+        run: pio run -e ${{ matrix.env }}
 
       - name: Reunir los binarios
         env:
           REF_NAME: ${{ github.ref_name }}
+          ENV_NAME: ${{ matrix.env }}
+          SUFFIX: ${{ matrix.suffix }}
         run: |
-          VERSION="${REF_NAME//\//-}"
-          B=.pio/build/jc1060p470
+          VERSION="${REF_NAME//\//-}${SUFFIX}"
+          CHIP=esp32p4
+          B=.pio/build/$ENV_NAME
           BOOT_APP0=~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin
           mkdir -p dist
           cp "$B/bootloader.bin" dist/bootloader.bin
           cp "$B/partitions.bin" dist/partitions.bin
           cp "$BOOT_APP0" dist/boot_app0.bin
-          cp "$B/firmware.bin" dist/firmware.bin
           # Imagen única para grabar en 0x0. OJO: borra las partidas guardadas (zona NVS).
-          esptool --chip esp32p4 merge-bin -o "dist/esp32-chess-${VERSION}-completo.bin" \
+          esptool --chip $CHIP merge-bin -o "dist/esp32-chess-${VERSION}-completo.bin" \
             --flash-mode dio --flash-freq 80m --flash-size 16MB \
             0x2000 dist/bootloader.bin 0x8000 dist/partitions.bin \
-            0xe000 dist/boot_app0.bin 0x10000 dist/firmware.bin
-          cp dist/firmware.bin "dist/esp32-chess-${VERSION}-app.bin"
-          (cd dist && sha256sum esp32-chess-*.bin > SHA256SUMS)
+            0xe000 dist/boot_app0.bin 0x10000 "$B/firmware.bin"
+          cp "$B/firmware.bin" "dist/esp32-chess-${VERSION}-app.bin"
+          rm dist/bootloader.bin dist/partitions.bin dist/boot_app0.bin
+          (cd dist && sha256sum esp32-chess-*.bin > "SHA256SUMS${SUFFIX}")
           ls -la dist
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: esp32-chess-firmware
-          path: |
-            dist/esp32-chess-*.bin
-            dist/bootloader.bin
-            dist/partitions.bin
-            dist/boot_app0.bin
-            dist/firmware.bin
-            dist/SHA256SUMS
+          name: esp32-chess-firmware-${{ matrix.env }}
+          path: dist/*
 
   release:
     needs: build
@@ -106,12 +113,13 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: esp32-chess-firmware
+          pattern: esp32-chess-firmware-*
+          merge-multiple: true
 
       - name: Adjuntar el firmware a la release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             esp32-chess-*.bin
-            SHA256SUMS
+            SHA256SUMS*
           generate_release_notes: true

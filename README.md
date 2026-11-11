@@ -67,6 +67,7 @@ PlatformIO no suele estar en el `PATH`: `~/.platformio/penv/bin/pio`.
 ```bash
 pio run -e jc1060p470                         # compila (con PPA)
 ESPTOOL=<venv>/bin/esptool tools/flash.sh     # graba la placa (hace falta esptool 5.3.dev3)
+pio run -e jc1060p470_v1                      # placa original (chip ES y panel antiguo); sin probar
 pio test -e native                            # 54 tests del motor y de la lógica de partida, en el PC
 tools/sim/shot.sh mid                         # captura de la interfaz sin placa
 ```
